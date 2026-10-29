@@ -104,7 +104,13 @@ export const TASKS: { id: TaskId; title: string; detail: string; href: string }[
   { id: "follow", title: `Follow @${X_USER}`, detail: "Follow the official account", href: `https://x.com/intent/follow?screen_name=${X_USER}` },
   { id: "like", title: "Like the post", detail: "Like the airdrop post", href: AIRDROP_POST_ID ? `https://x.com/intent/like?tweet_id=${AIRDROP_POST_ID}` : `https://x.com/${X_USER}` },
   { id: "repost", title: "Repost the post", detail: "Repost the airdrop post", href: AIRDROP_POST_ID ? `https://x.com/intent/retweet?tweet_id=${AIRDROP_POST_ID}` : `https://x.com/${X_USER}` },
-  { id: "comment", title: "Comment on the post", detail: "Write anything, in your own words", href: AIRDROP_POST_ID ? `https://x.com/intent/post?in_reply_to=${AIRDROP_POST_ID}` : `https://x.com/${X_USER}` },
+  {
+    id: "comment",
+    title: "Comment $HAUNT on the post",
+    detail: "Reply to the airdrop post with $HAUNT",
+    // Opens X's reply box with $HAUNT already typed in.
+    href: `https://x.com/intent/post?${new URLSearchParams({ text: "$HAUNT", ...(AIRDROP_POST_ID ? { in_reply_to: AIRDROP_POST_ID } : {}) })}`,
+  },
   { id: "notify", title: "Turn on notifications", detail: "Open the profile and tap the bell", href: `https://x.com/${X_USER}` },
 ];
 export const TASK_IDS = TASKS.map((t) => t.id);

@@ -67,7 +67,7 @@ function Tasks({ handle, done, setDone, locked }: { handle: string; done: Done; 
             <span className="task-num">{String(i + 1).padStart(2, "0")}</span>
             <div className="task-text">
               <b>{t.title}</b>
-              <span>{done[t.id] ? `✓ ${t.id === "notify" ? "notifications on" : `${t.id} complete`}` : t.detail}</span>
+              <span>{done[t.id] ? `✓ ${t.id === "notify" ? "notifications on" : t.id === "comment" ? "$HAUNT comment complete" : `${t.id} complete`}` : t.detail}</span>
             </div>
             {!done[t.id] && (
               <a
