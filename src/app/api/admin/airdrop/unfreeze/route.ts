@@ -7,6 +7,6 @@ import { CLAIM_OPEN } from "@/lib/airdrop";
 export async function POST() {
   if (!(await isAdmin())) return fail("Not signed in as admin.", 403);
   if (CLAIM_OPEN) return fail("Claims are open. The list can't change now.", 409);
-  await store.putSnapshot(null);
+  await store.putSnapshot("airdrop", null);
   return Response.json({ ok: true });
 }

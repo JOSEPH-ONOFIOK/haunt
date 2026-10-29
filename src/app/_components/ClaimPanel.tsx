@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useClock } from "../_components/useClock";
+import { useClock } from "./useClock";
 import { createPublicClient, createWalletClient, custom, http, type EIP1193Provider, type Hex } from "viem";
 import {
-  CLAIM_CONTRACT,
-  CLAIM_OPEN,
   chain,
-  claimConfigured,
+  chainReady,
   distributorAbi,
   erc20Abi,
   explorerTx,
@@ -32,11 +30,10 @@ type State =
   | { kind: "confirming"; hash: string }
   | { kind: "claimed"; hash?: string };
 
-const pendingKey = (index: number) => `haunt:claim:${index}`;
-const publicClient = claimConfigured ? createPublicClient({ chain, transport: http() }) : null;
+const publicClient = chainReady ? createPublicClient({ chain, transport: http() }) : null;
 
 /** Claims are open only when the team says so AND the contract matches the frozen list AND it holds the tokens. */
-async function readChain(claim: Claim, root: string) {
+async function readChain(CLAIM_CONTRACT: Hex | null, CLAIM_OPEN: boolean, claim: Claim, root: string) {
   if (!publicClient || !CLAIM_CONTRACT) return { open: false, claimed: false };
   const [onChainRoot, token, claimed] = await Promise.all([
     publicClient.readContract({ address: CLAIM_CONTRACT, abi: distributorAbi, functionName: "merkleRoot" }),
@@ -48,11 +45,22 @@ async function readChain(claim: Claim, root: string) {
   return { open: CLAIM_OPEN && onChainRoot.toLowerCase() === root.toLowerCase() && funded, claimed: false };
 }
 
-async function isClaimedNow(index: number) {
-  return publicClient!.readContract({ address: CLAIM_CONTRACT!, abi: distributorAbi, functionName: "isClaimed", args: [BigInt(index)] });
-}
+type Props = {
+  claim: Claim;
+  root: string;
+  /** Which distributor this claim is paid from, and whether the team has opened it. */
+  contract: Hex | null;
+  open: boolean;
+  /** e.g. "100,000 $HAUNT" */
+  amountLabel: string;
+};
 
-export default function ClaimPanel({ claim, root }: { claim: Claim; root: string }) {
+/** Connect, claim once, and show Claimed only after the chain confirms it. Used by the airdrop and the game rewards. */
+export default function ClaimPanel({ claim, root, contract: CLAIM_CONTRACT, open: CLAIM_OPEN, amountLabel }: Props) {
+  const claimConfigured = chainReady && Boolean(CLAIM_CONTRACT);
+  const pendingKey = (index: number) => `haunt:claim:${CLAIM_CONTRACT}:${index}`;
+  const isClaimedNow = (index: number) =>
+    publicClient!.readContract({ address: CLAIM_CONTRACT!, abi: distributorAbi, functionName: "isClaimed", args: [BigInt(index)] });
   const [state, setState] = useState<State>(claimConfigured && CLAIM_OPEN ? { kind: "checking" } : { kind: "closed" });
   const [error, setError] = useState("");
   const now = useClock();
@@ -78,7 +86,7 @@ export default function ClaimPanel({ claim, root }: { claim: Claim; root: string
     let alive = true;
     (async () => {
       try {
-        const { open, claimed } = await readChain(claim, root);
+        const { open, claimed } = await readChain(CLAIM_CONTRACT, CLAIM_OPEN, claim, root);
         if (!alive) return;
         if (claimed) return setState({ kind: "claimed" });
         if (!open) return setState({ kind: "closed" });
@@ -149,7 +157,7 @@ export default function ClaimPanel({ claim, root }: { claim: Claim; root: string
     return (
       <div className="claim-box claim-done">
         <span className="claim-stamp spooky">Claimed</span>
-        <p>100,000 $HAUNT landed in {shortAddress(claim.account)}.</p>
+        <p>{amountLabel} landed in {shortAddress(claim.account)}.</p>
         {link && <a href={link} target="_blank" rel="noopener noreferrer">View the transaction</a>}
       </div>
     );

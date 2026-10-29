@@ -21,11 +21,11 @@ function layers(leaves: Hex[]) {
 }
 
 /** The frozen claim list: index order is the order given. */
-export function buildSnapshot(accounts: string[], amount: bigint, decimals: number): Snapshot {
-  if (!accounts.length) throw new Error("No approved wallets to freeze.");
-  const leaves = accounts.map((a, i) => leafOf(i, a, amount));
+export function buildSnapshot(entries: { account: string; amount: bigint; xid?: string }[], decimals: number): Snapshot {
+  if (!entries.length) throw new Error("Nothing to freeze.");
+  const leaves = entries.map((e, i) => leafOf(i, e.account, e.amount));
   const tree = layers(leaves);
-  const claims: Claim[] = accounts.map((account, index) => {
+  const claims: Claim[] = entries.map(({ account, amount, xid }, index) => {
     const proof: Hex[] = [];
     let i = index;
     for (const layer of tree.slice(0, -1)) {
@@ -33,11 +33,11 @@ export function buildSnapshot(accounts: string[], amount: bigint, decimals: numb
       if (sibling < layer.length) proof.push(layer[sibling]);
       i = Math.floor(i / 2);
     }
-    return { index, account, amount: amount.toString(), proof };
+    return { index, account, amount: amount.toString(), proof, ...(xid ? { xid } : {}) };
   });
   return {
     merkleRoot: tree[tree.length - 1][0],
-    tokenTotal: (amount * BigInt(accounts.length)).toString(),
+    tokenTotal: entries.reduce((sum, e) => sum + e.amount, BigInt(0)).toString(),
     decimals,
     frozenAt: Date.now(),
     claims,

@@ -5,9 +5,11 @@ import { Suspense } from "react";
 import TopBar from "../_components/TopBar";
 import { AdminLogin, RowActions } from "./AdminControls";
 import store, { today } from "@/lib/store";
-import { adminConfigured, authMode, isAdmin } from "@/lib/auth";
+import { adminConfigured, isAdmin, xReady } from "@/lib/auth";
 import { HINT_PENALTY_MS, formatScore } from "@/lib/room";
-import { ROUND, fmtHaunt, rewardFor } from "@/lib/rewards";
+import { REWARDS, ROUND, fmtHaunt, rewardFor, roundOpen } from "@/lib/rewards";
+import { REWARDS_CLAIM_OPEN, REWARDS_CONTRACT } from "@/lib/airdrop";
+import { FreezeControls } from "./airdrop/AppTable";
 import { ROOMS, ROOM_IDS, STEPS, isRoomId, type RoomId } from "@/lib/rooms";
 
 export const metadata: Metadata = { title: "Admin", robots: { index: false, follow: false } };
@@ -53,6 +55,8 @@ async function Admin({ searchParams }: Props) {
   const room: RoomId = isRoomId(q.room) ? q.room : "study";
   const period = q.period && /^\d{4}-\d{2}-\d{2}$/.test(q.period) ? q.period : q.period === "all" ? "all" : q.period === "today" ? today() : ROUND.id;
   const scores = await store.top(room, period, 50);
+  const rewardsMeta = period === ROUND.id && room === ROUND.room ? await store.getSnapshotMeta("rewards") : null;
+  const ended = !roundOpen();
   const accounts = await Promise.all(scores.map((s) => store.getAccount(s.xid)));
 
   return (
@@ -61,7 +65,7 @@ async function Admin({ searchParams }: Props) {
         <Link href="/admin" className="tab tab-on">Leaderboards</Link>
         <Link href="/admin/airdrop" className="tab">Allocation</Link>
       </nav>
-      {authMode !== "x" && (
+      {!xReady && (
         <p className="form-error">Sign in with X isn&apos;t configured, so handles are typed and unverified. Don&apos;t pay $HAUNT rewards from this board.</p>
       )}
       <div className="tabs">
@@ -79,6 +83,29 @@ async function Admin({ searchParams }: Props) {
         </form>
         <a className="btn btn-sm btn-orange" href={`/api/admin/export?room=${room}&period=${period}`}>Export CSV</a>
       </div>
+
+      {period === ROUND.id && room === ROUND.room && (
+        <div className="freeze-box">
+          {rewardsMeta ? (
+            <>
+              <p><b>Winners frozen</b> {new Date(rewardsMeta.frozenAt).toISOString().slice(0, 16).replace("T", " ")} UTC.</p>
+              <p className="mono">Merkle root: {rewardsMeta.merkleRoot}</p>
+              <p className="mono">Fund the rewards contract with: {rewardsMeta.tokenTotal} (base units, {rewardsMeta.decimals} decimals)</p>
+              <p className="muted">Rewards contract: {REWARDS_CONTRACT ?? "not set"} · claims {REWARDS_CLAIM_OPEN ? "OPEN" : "closed"}.</p>
+            </>
+          ) : (
+            <p className="muted">
+              {ended
+                ? `${ROUND.name} is over. Hide or ban anything suspicious first, then freeze the top ${REWARDS.length} into the rewards claim list.`
+                : `${ROUND.name} ends ${new Date(ROUND.endsAt).toUTCString().replace(" GMT", " UTC")}. Winners can be frozen after that.`}
+            </p>
+          )}
+          <div className="panel-actions" style={{ justifyContent: "flex-start" }}>
+            <FreezeControls frozen={Boolean(rewardsMeta)} canFreeze={ended && scores.length > 0} base="/api/admin/rewards" what="winners" />
+            {rewardsMeta && <a className="btn btn-sm btn-green" href="/api/admin/rewards/export">Download rewards claims JSON</a>}
+          </div>
+        </div>
+      )}
 
       {!scores.length ? (
         <p className="board-empty">No entries on this board.</p>

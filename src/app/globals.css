@@ -912,3 +912,14 @@ button { font: inherit; color: inherit; }
 
 /* .section's vertical padding was wiping .wrap's side gutter on pages that use both */
 .wrap.section { padding-left: 16px; padding-right: 16px; }
+
+/* Sign in with X, styled like the militia site's button */
+.btn-x { --btn-bg: #f1ece1; --btn-ink: #0b0a0c; }
+.btn-x:hover { --btn-bg: #fff; }
+.btn-icon-lg { width: 20px; }
+.fine { margin: 0; color: var(--dim); font-size: 15px; }
+
+.ad-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ad-card > .btn { align-self: flex-start; }
+.reward-line a { color: var(--green); }
+@media (max-width: 900px) { .ad-grid-2 { grid-template-columns: minmax(0, 1fr); } }

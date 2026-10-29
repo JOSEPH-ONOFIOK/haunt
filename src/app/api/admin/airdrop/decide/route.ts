@@ -8,7 +8,7 @@ export async function POST(req: Request) {
   if (!(await isAdmin())) return fail("Not signed in as admin.", 403);
   const { xids, status } = await body<{ xids: string[]; status: AppStatus }>(req);
   if (!Array.isArray(xids) || !xids.length || xids.length > 500 || !["pending", "approved", "rejected"].includes(status!)) return fail("Bad request.");
-  if (await store.getSnapshotMeta()) return fail("The list is frozen. Unfreeze it before changing decisions.", 409);
+  if (await store.getSnapshotMeta("airdrop")) return fail("The list is frozen. Unfreeze it before changing decisions.", 409);
 
   let changed = 0;
   let capped = 0;

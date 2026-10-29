@@ -10,10 +10,13 @@ const SECRET = process.env.SESSION_SECRET || (process.env.NODE_ENV === "producti
 export const hasSecret = !!SECRET;
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET_KEY;
 
-// "x": Sign in with X, the only mode that proves who a prize winner is (needs X_CLIENT_ID, SESSION_SECRET and Upstash).
-// "handle": players type their X handle. For local testing and previews; entries are marked unverified.
+// "x": Sign in with X, like the militia site. The only mode the live site ever uses.
+// "handle": players type a handle, unverified. Only on a developer's machine, or a test build with DEV_HANDLE_SIGNIN=1.
 export type AuthMode = "x" | "handle";
-export const authMode: AuthMode = X_CLIENT_ID && SECRET && process.env.UPSTASH_REDIS_REST_URL ? "x" : "handle";
+/** X keys and the shared database are all set, so the Sign in with X button can actually sign people in. */
+export const xReady = Boolean(X_CLIENT_ID && SECRET && process.env.UPSTASH_REDIS_REST_URL);
+const devHandles = process.env.NODE_ENV !== "production" || process.env.DEV_HANDLE_SIGNIN === "1";
+export const authMode: AuthMode = xReady || !devHandles ? "x" : "handle";
 
 // Prize eligibility: brand new or empty X accounts are the cheapest way to farm entries.
 export const MIN_ACCOUNT_DAYS = Number(process.env.MIN_ACCOUNT_DAYS ?? 30);

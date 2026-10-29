@@ -77,7 +77,7 @@ export function AppTable({ apps, status, frozen }: { apps: Application[]; status
   );
 }
 
-export function FreezeControls({ frozen, canFreeze }: { frozen: boolean; canFreeze: boolean }) {
+export function FreezeControls({ frozen, canFreeze, base = "/api/admin/airdrop", what = "list" }: { frozen: boolean; canFreeze: boolean; base?: string; what?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   async function act(url: string, ask: string) {
@@ -93,12 +93,12 @@ export function FreezeControls({ frozen, canFreeze }: { frozen: boolean; canFree
     }
   }
   return frozen ? (
-    <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => act("/api/admin/airdrop/unfreeze", "Unfreeze the list? Only do this if the claim contract has NOT been deployed with this root.")}>
+    <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => act(`${base}/unfreeze`, `Unfreeze the ${what}? Only do this if the claim contract has NOT been deployed with this root.`)}>
       Unfreeze
     </button>
   ) : (
-    <button className="btn btn-sm btn-orange" disabled={busy || !canFreeze} onClick={() => act("/api/admin/airdrop/freeze", "Freeze the approved list? Decisions lock and the Merkle root is generated for the claim contract.")}>
-      Freeze list
+    <button className="btn btn-sm btn-orange" disabled={busy || !canFreeze} onClick={() => act(`${base}/freeze`, `Freeze the ${what}? It locks and the Merkle root is generated for the claim contract.`)}>
+      Freeze {what}
     </button>
   );
 }

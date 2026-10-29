@@ -8,9 +8,9 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
 
   if (q.get("format") === "merkle") {
-    const meta = await store.getSnapshotMeta();
+    const meta = await store.getSnapshotMeta("airdrop");
     if (!meta) return new Response("Freeze the list first.", { status: 409 });
-    const claims = await store.allClaims();
+    const claims = await store.allClaims("airdrop");
     // Same shape as Uniswap's merkle-distributor output, which most deploy scripts read.
     const out = {
       merkleRoot: meta.merkleRoot,

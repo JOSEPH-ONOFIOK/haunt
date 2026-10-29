@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { connection } from "next/server";
-import type { AppStatus, Application, Claim, Snapshot } from "./airdrop";
+import type { AppStatus, Application, Claim, ClaimList, Snapshot } from "./airdrop";
 import type { RoomId } from "./rooms";
 import { ROUND, roundOpen } from "./rewards";
 
@@ -106,15 +106,17 @@ interface Store {
   countApps(): Promise<Record<AppStatus, number>>;
   // Returns false, changing nothing, when approving would pass the cap.
   decide(xid: string, status: AppStatus, cap: number): Promise<boolean>;
-  // The frozen claim list. Meta is small; claims are looked up per wallet.
-  getSnapshotMeta(): Promise<Omit<Snapshot, "claims"> | null>;
-  getClaim(wallet: string): Promise<Claim | null>;
-  allClaims(): Promise<Claim[]>;
-  putSnapshot(s: Snapshot | null): Promise<void>;
+  // A frozen claim list. Meta is small; airdrop claims are looked up by wallet, reward claims by X account.
+  getSnapshotMeta(list: ClaimList): Promise<Omit<Snapshot, "claims"> | null>;
+  getClaim(list: ClaimList, key: string): Promise<Claim | null>;
+  allClaims(list: ClaimList): Promise<Claim[]>;
+  putSnapshot(list: ClaimList, s: Snapshot | null): Promise<void>;
 }
 
 const STATUSES: AppStatus[] = ["pending", "approved", "rejected"];
 const appScore = (a: Application) => (a.status === "approved" ? (a.decidedAt ?? a.appliedAt) : a.appliedAt);
+/** How a claim is found: airdrop entries by wallet, game reward entries by X account (one wallet could win twice). */
+const claimKey = (list: ClaimList, c: Claim) => (list === "rewards" ? c.xid! : c.account.toLowerCase());
 const metaOf = (s: Snapshot): Omit<Snapshot, "claims"> => ({ merkleRoot: s.merkleRoot, tokenTotal: s.tokenTotal, decimals: s.decimals, frozenAt: s.frozenAt });
 
 // Every board a score belongs on: all time, its day, and the prize round if it was posted before the round ended.
@@ -263,29 +265,29 @@ const upstash: Store = {
     await redis("SET", `app:${xid}`, JSON.stringify(next));
     return true;
   },
-  getSnapshotMeta: () => getJson<Omit<Snapshot, "claims">>("airdrop:meta"),
-  getClaim: (wallet) => getJson<Claim>(`airdrop:claim:${wallet.toLowerCase()}`),
-  async allClaims() {
-    const wallets = await redis<string[]>("LRANGE", "airdrop:wallets", 0, -1);
+  getSnapshotMeta: (list) => getJson<Omit<Snapshot, "claims">>(`${list}:meta`),
+  getClaim: (list, key) => getJson<Claim>(`${list}:claim:${key.toLowerCase()}`),
+  async allClaims(list) {
+    const keys = await redis<string[]>("LRANGE", `${list}:keys`, 0, -1);
     const out: Claim[] = [];
-    for (let i = 0; i < wallets.length; i += 200) {
-      const vals = await redis<(string | null)[]>("MGET", ...wallets.slice(i, i + 200).map((w) => `airdrop:claim:${w}`));
+    for (let i = 0; i < keys.length; i += 200) {
+      const vals = await redis<(string | null)[]>("MGET", ...keys.slice(i, i + 200).map((k) => `${list}:claim:${k}`));
       out.push(...vals.filter(Boolean).map((v) => JSON.parse(v!) as Claim));
     }
     return out.sort((a, b) => a.index - b.index);
   },
-  async putSnapshot(snap) {
+  async putSnapshot(list, snap) {
     // Clear the old list first, in batches small enough for one request each.
-    const old = await redis<string[]>("LRANGE", "airdrop:wallets", 0, -1);
-    for (let i = 0; i < old.length; i += 200) await redis("DEL", ...old.slice(i, i + 200).map((w) => `airdrop:claim:${w}`));
-    await redis("DEL", "airdrop:wallets", "airdrop:meta");
+    const old = await redis<string[]>("LRANGE", `${list}:keys`, 0, -1);
+    for (let i = 0; i < old.length; i += 200) await redis("DEL", ...old.slice(i, i + 200).map((k) => `${list}:claim:${k}`));
+    await redis("DEL", `${list}:keys`, `${list}:meta`);
     if (!snap) return;
     for (let i = 0; i < snap.claims.length; i += 200) {
       const batch = snap.claims.slice(i, i + 200);
-      await redis("MSET", ...batch.flatMap((c) => [`airdrop:claim:${c.account.toLowerCase()}`, JSON.stringify(c)]));
-      await redis("RPUSH", "airdrop:wallets", ...batch.map((c) => c.account.toLowerCase()));
+      await redis("MSET", ...batch.flatMap((c) => [`${list}:claim:${claimKey(list, c).toLowerCase()}`, JSON.stringify(c)]));
+      await redis("RPUSH", `${list}:keys`, ...batch.map((c) => claimKey(list, c).toLowerCase()));
     }
-    await redis("SET", "airdrop:meta", JSON.stringify(metaOf(snap)));
+    await redis("SET", `${list}:meta`, JSON.stringify(metaOf(snap)));
   },
 };
 
@@ -303,9 +305,9 @@ type Db = {
   apps: Record<string, Application>;
   /** lowercase wallet → xid of the application using it */
   appWallets: Record<string, string>;
-  snapshot: Snapshot | null;
+  snapshots: Partial<Record<ClaimList, Snapshot>>;
 };
-const EMPTY: Db = { runs: {}, once: {}, scores: {}, accounts: {}, bans: {}, best: {}, apps: {}, appWallets: {}, snapshot: null };
+const EMPTY: Db = { runs: {}, once: {}, scores: {}, accounts: {}, bans: {}, best: {}, apps: {}, appWallets: {}, snapshots: {} };
 const DIR = join(process.cwd(), ".data");
 const FILE = join(DIR, "haunt.json");
 const windows = new Map<string, { n: number; reset: number }>();
@@ -461,19 +463,20 @@ const file: Store = {
       return true;
     });
   },
-  async getSnapshotMeta() {
-    const snap = (await db()).snapshot;
+  async getSnapshotMeta(list) {
+    const snap = (await db()).snapshots[list];
     return snap ? metaOf(snap) : null;
   },
-  async getClaim(wallet) {
-    return (await db()).snapshot?.claims.find((c) => c.account.toLowerCase() === wallet.toLowerCase()) ?? null;
+  async getClaim(list, key) {
+    return (await db()).snapshots[list]?.claims.find((c) => claimKey(list, c).toLowerCase() === key.toLowerCase()) ?? null;
   },
-  async allClaims() {
-    return (await db()).snapshot?.claims ?? [];
+  async allClaims(list) {
+    return (await db()).snapshots[list]?.claims ?? [];
   },
-  async putSnapshot(snap) {
+  async putSnapshot(list, snap) {
     await mutate((d) => {
-      d.snapshot = snap;
+      if (snap) d.snapshots[list] = snap;
+      else delete d.snapshots[list];
     });
   },
 };

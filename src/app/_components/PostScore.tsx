@@ -80,7 +80,9 @@ export default function PostScore({ runId }: { runId: string }) {
           {score.roundRank ? <><b>#{score.roundRank}</b> in {ROUND.name} · </> : null}<b>#{score.rank}</b> all time
         </p>
         {score.roundRank && rewardFor(score.roundRank) > 0 && (
-          <p className="reward-line">Currently in a winning spot: {fmtHaunt(rewardFor(score.roundRank))}</p>
+          <p className="reward-line">
+            Currently in a winning spot: {fmtHaunt(rewardFor(score.roundRank))}. <a href="/rewards">Winners claim at launch.</a>
+          </p>
         )}
         {!score.eligible && <p className="muted">Your X account is too new or too small to win $HAUNT, but your time still counts.</p>}
         {/* eslint-disable-next-line @next/next/no-img-element -- a generated PNG, not a static asset */}

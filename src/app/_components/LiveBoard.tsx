@@ -55,7 +55,8 @@ export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicB
   }, [room]);
 
   const { latest, fastest, round, stats } = boards[room];
-  const ranked = period === "round" ? round : fastest;
+  const showRound = room === ROUND.room;
+  const ranked = period === "round" && showRound ? round : fastest;
   const ended = untilEnd(now) === "Ended";
 
   return (
@@ -115,8 +116,8 @@ export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicB
           <header className="panel-head">
             <h3 id="fastest-title">Fastest souls</h3>
             <div className="mini-tabs" role="tablist" aria-label="Period">
-              {(["round", "all"] as const).map((p) => (
-                <button key={p} role="tab" aria-selected={p === period} className={`mini-tab${p === period ? " mini-tab-on" : ""}`} onClick={() => setPeriod(p)}>
+              {(showRound ? (["round", "all"] as const) : (["all"] as const)).map((p) => (
+                <button key={p} role="tab" aria-selected={p === period} className={`mini-tab${p === period || !showRound ? " mini-tab-on" : ""}`} onClick={() => setPeriod(p)}>
                   {p === "round" ? ROUND.name : "All time"}
                 </button>
               ))}
@@ -132,18 +133,22 @@ export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicB
                     <span className="feed-sub">{hintText(s.hints)}</span>
                   </div>
                   <span className="feed-time">{formatScore(s.ms)}</span>
-                  {period === "round" && rewardFor(s.rank) > 0 && <span className="reward-chip">{fmtHaunt(rewardFor(s.rank))}</span>}
+                  {period === "round" && showRound && rewardFor(s.rank) > 0 && <span className="reward-chip">{fmtHaunt(rewardFor(s.rank))}</span>}
                 </li>
               ))}
             </ol>
           ) : (
             <p className="panel-empty">
-              {period === "round" ? `No one has claimed a winning spot yet. The top ${REWARDS.length} each win ${fmtHaunt(REWARDS[0])}.` : "The top spot is still unclaimed. Take it."}
+              {period === "round" && showRound ? `No one has claimed a winning spot yet. The top ${REWARDS.length} each win ${fmtHaunt(REWARDS[0])}.` : "The top spot is still unclaimed. Take it."}
             </p>
           )}
           <footer className="panel-foot">
-            <span>{period === "round" ? `Top ${REWARDS.length} at the end of ${ROUND.name} win` : "Best time per X account"}</span>
-            <Link href={`/leaderboard?room=${room}&period=${period}`} className="panel-link">See all</Link>
+            {period === "round" && showRound ? (
+              <Link href="/rewards" className="panel-link">Top {REWARDS.length} claim at launch</Link>
+            ) : (
+              <span>Best time per X account</span>
+            )}
+            <Link href={`/leaderboard?room=${room}&period=${showRound ? period : "all"}`} className="panel-link">See all</Link>
           </footer>
         </section>
       </div>

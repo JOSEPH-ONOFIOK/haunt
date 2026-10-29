@@ -55,6 +55,7 @@ export default function Home() {
                   <li>Submit your Robinhood Chain wallet</li>
                   <li>Track your application status</li>
                 </ul>
+                <p className="fine">Applications close 2 hours before Halloween.</p>
               </div>
               <div className="ad-card">
                 <h3 className="ad-title"><span className="ad-num">2</span> Allocation details</h3>
@@ -78,7 +79,11 @@ export default function Home() {
         <section className="section" id="leaderboard">
           <div className="wrap">
             <p className="eyebrow">Leaderboard</p>
-            <h2 className="section-title">Every escape, on the <em>record</em></h2>
+            <h2 className="section-title">The fastest souls win <em>50,000</em> $HAUNT</h2>
+            <p className="section-lead">
+              Top 5 of Round 1, each. The round ends 2 hours before Halloween, and winners claim their $HAUNT here when the coin launches.{" "}
+              <Link href="/rewards">Check your place</Link>.
+            </p>
             <Suspense fallback={<BoardSkeleton rows={5} />}>
               <HomeBoard />
             </Suspense>

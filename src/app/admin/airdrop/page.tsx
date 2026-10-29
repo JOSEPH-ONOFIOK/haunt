@@ -6,7 +6,7 @@ import TopBar from "../../_components/TopBar";
 import { AdminLogin } from "../AdminControls";
 import { AppTable, FreezeControls } from "./AppTable";
 import store from "@/lib/store";
-import { adminConfigured, authMode, isAdmin } from "@/lib/auth";
+import { adminConfigured, isAdmin, xReady } from "@/lib/auth";
 import { ALLOCATION, CLAIM_CONTRACT, CLAIM_OPEN, MAX_APPROVED, type AppStatus } from "@/lib/airdrop";
 
 export const metadata: Metadata = { title: "Admin: allocation", robots: { index: false, follow: false } };
@@ -23,7 +23,7 @@ async function Review({ searchParams }: Props) {
   const q = await searchParams;
   const status: AppStatus = q.status === "approved" || q.status === "rejected" ? q.status : "pending";
   const page = Math.max(0, Number(q.page) || 0);
-  const [counts, apps, meta] = await Promise.all([store.countApps(), store.listApps(status, page * PAGE, PAGE), store.getSnapshotMeta()]);
+  const [counts, apps, meta] = await Promise.all([store.countApps(), store.listApps(status, page * PAGE, PAGE), store.getSnapshotMeta("airdrop")]);
   const total = counts[status];
 
   return (
@@ -33,7 +33,7 @@ async function Review({ searchParams }: Props) {
         <Link href="/admin/airdrop" className="tab tab-on">Allocation</Link>
       </nav>
 
-      {authMode !== "x" && <p className="form-error">Sign in with X isn&apos;t configured, so applicants typed their handles and none are verified.</p>}
+      {!xReady && <p className="form-error">Sign in with X isn&apos;t configured, so applicants typed their handles and none are verified.</p>}
 
       <div className="stats">
         <div className="stat stat-hot">

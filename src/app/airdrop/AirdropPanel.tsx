@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import ClaimPanel from "./ClaimPanel";
+import ClaimPanel from "../_components/ClaimPanel";
 import SignIn from "../_components/SignIn";
 import Turnstile from "../_components/Turnstile";
-import { ALLOCATION, MAX_APPROVED, shortAddress, type AppStatus, type Claim } from "@/lib/airdrop";
+import { ALLOCATION, CLAIM_CONTRACT, CLAIM_OPEN, MAX_APPROVED, shortAddress, type AppStatus, type Claim } from "@/lib/airdrop";
 import { TURNSTILE_SITE_KEY } from "@/lib/site";
 
 type Me = {
@@ -12,6 +12,8 @@ type Me = {
   account: { handle: string; verified: boolean; eligible: boolean } | null;
   app: { handle: string; wallet: string; status: AppStatus; appliedAt: number } | null;
   frozen: boolean;
+  applicationsOpen: boolean;
+  closesAt: string;
   merkleRoot: string | null;
   claim: Claim | null;
 };
@@ -72,7 +74,7 @@ export default function AirdropPanel() {
   let step: React.ReactNode = null;
   if (!me) step = <p className="muted">{error || "Opening the crypt..."}</p>;
   else if (!me.account) step = <SignIn mode={me.mode} next="/airdrop" lead="One application per X account." onSignedIn={load} />;
-  else if ((!app && !me.frozen) || editing) {
+  else if ((!app && me.applicationsOpen) || (editing && me.applicationsOpen)) {
     step = (
       <form className="name-form" onSubmit={apply}>
         <label htmlFor="rh-wallet">Your Robinhood Chain wallet address</label>
@@ -86,12 +88,12 @@ export default function AirdropPanel() {
         {error && <p className="form-error">{error}</p>}
       </form>
     );
-  } else if (!app) step = <p>Applications are closed. The list has been finalised.</p>;
+  } else if (!app) step = <p>Applications are closed. They closed 2 hours before Halloween.</p>;
   else if (app.status === "pending") {
     step = (
       <div className="status-box">
         <p>We&apos;re reviewing every application. Check back here for your result.</p>
-        {!me.frozen && (
+        {me.applicationsOpen && (
           <button className="btn btn-sm btn-ghost" onClick={() => { setWallet(app.wallet); setEditing(true); }}>Change wallet</button>
         )}
       </div>
@@ -114,6 +116,9 @@ export default function AirdropPanel() {
           />
         </ul>
         {step}
+        {me?.applicationsOpen && (
+          <p className="fine">Applications close {new Date(me.closesAt).toUTCString().replace(":00 GMT", " UTC")}, 2 hours before Halloween.</p>
+        )}
       </section>
 
       <section className="ad-card" aria-labelledby="ad-alloc">
@@ -134,7 +139,7 @@ export default function AirdropPanel() {
       <section className="ad-card" aria-labelledby="ad-claim">
         <h2 id="ad-claim" className="ad-title"><span className="ad-num">3</span> Claim status</h2>
         {approved && me?.claim && me.merkleRoot ? (
-          <ClaimPanel claim={me.claim} root={me.merkleRoot} />
+          <ClaimPanel claim={me.claim} root={me.merkleRoot} contract={CLAIM_CONTRACT} open={CLAIM_OPEN} amountLabel={`${fmt(ALLOCATION)} $HAUNT`} />
         ) : (
           <div className="claim-box">
             <button className="btn btn-green btn-big" disabled>Claim disabled</button>

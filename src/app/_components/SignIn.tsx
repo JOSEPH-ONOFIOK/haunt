@@ -2,23 +2,54 @@
 
 import { useState, type FormEvent } from "react";
 import Turnstile from "./Turnstile";
+import { XIcon } from "./art";
 import { TURNSTILE_SITE_KEY } from "@/lib/site";
 
+const AUTH_ERRORS: Record<string, string> = {
+  cancelled: "Sign in was cancelled on X.",
+  expired: "That sign in took too long. Please try again.",
+  x_failed: "X didn't confirm your account. Please try again.",
+  unavailable: "Sign in with X isn't set up yet. Check back soon.",
+  rate_limited: "Too many sign in attempts. Try again in a few minutes.",
+  bot_check: "The bot check failed. Please try again.",
+};
+
 /**
- * Sign in with X, or, before the X app is set up, a typed handle (marked unverified).
- * `next` is where X sends the player back to; onSignedIn runs after a typed handle is accepted.
+ * Sign in with X, the same flow as the militia site: bot check, then off to X and back to `next`.
+ * The typed handle form only exists on a developer's machine (mode "handle"); onSignedIn runs after it.
  */
 export default function SignIn({ mode, next, lead, onSignedIn }: { mode: "x" | "handle"; next: string; lead: string; onSignedIn: () => void }) {
   const [handle, setHandle] = useState("");
   const [cf, setCf] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  // X sends people back with ?auth_error=... when something went wrong. This form only renders in the
+  // browser (after the session check), so reading the address bar up front is safe.
+  const [error, setError] = useState(() => {
+    const code = typeof window === "undefined" ? null : new URLSearchParams(location.search).get("auth_error");
+    return code ? (AUTH_ERRORS[code] ?? "Sign in didn't work. Please try again.") : "";
+  });
+
+  const bot = TURNSTILE_SITE_KEY ? <Turnstile siteKey={TURNSTILE_SITE_KEY} onToken={setCf} /> : null;
+  const botPending = Boolean(TURNSTILE_SITE_KEY) && !cf;
 
   if (mode === "x") {
+    const go = () => {
+      setBusy(true);
+      const q = new URLSearchParams({ next });
+      if (cf) q.set("cf", cf);
+      // Full page navigation: the route handler redirects to X's consent screen
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      location.assign(`/api/auth/x/start?${q}`);
+    };
     return (
       <div className="name-form">
         <p className="form-note">{lead}</p>
-        <a className="btn btn-green" href={`/api/auth/x/start?next=${encodeURIComponent(next)}`}>Sign in with X</a>
+        {bot}
+        <button className="btn btn-x btn-big" onClick={go} disabled={busy || botPending}>
+          <span className="btn-icon btn-icon-lg"><XIcon /></span> {busy ? "Opening X..." : "Sign in with X"}
+        </button>
+        <p className="fine">🔒 We only read your public profile. We never post for you.</p>
+        {error && <p className="form-error">{error}</p>}
       </div>
     );
   }
@@ -42,12 +73,12 @@ export default function SignIn({ mode, next, lead, onSignedIn }: { mode: "x" | "
   return (
     <form className="name-form" onSubmit={submit}>
       <p className="form-note">{lead}</p>
-      <label htmlFor="xh">Your X handle (preview mode, not verified)</label>
+      <label htmlFor="xh">X handle (developer test mode only, never on the live site)</label>
       <div className="name-row">
         <input id="xh" className="input" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@yourhandle" required autoCapitalize="off" spellCheck={false} />
         <button className="btn btn-green" disabled={busy}>{busy ? "..." : "Continue"}</button>
       </div>
-      {TURNSTILE_SITE_KEY && <Turnstile siteKey={TURNSTILE_SITE_KEY} onToken={setCf} />}
+      {bot}
       {error && <p className="form-error">{error}</p>}
     </form>
   );

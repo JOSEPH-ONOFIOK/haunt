@@ -25,8 +25,11 @@ export type Application = {
   followers?: number;
 };
 
-/** One wallet's entry in the frozen list that the claim contract was deployed with. */
-export type Claim = { index: number; account: string; amount: string; proof: string[] };
+/** One entry in a frozen list that a claim contract was deployed with. xid is set on game reward entries. */
+export type Claim = { index: number; account: string; amount: string; proof: string[]; xid?: string };
+
+/** The two claim lists. They never share a contract. */
+export type ClaimList = "airdrop" | "rewards";
 
 export type Snapshot = {
   merkleRoot: string;
@@ -41,13 +44,16 @@ export const cleanAddress = (v: unknown) => (typeof v === "string" && isAddress(
 export const sameAddress = (a?: string | null, b?: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 export const shortAddress = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-// ---------- the claim contract on Robinhood Chain ----------
-// Claims stay off until the team sets the contract and flips NEXT_PUBLIC_CLAIM_OPEN after funding it.
+// ---------- the claim contracts on Robinhood Chain ----------
+// Each stays off until the team sets its contract and flips its OPEN flag after funding it.
 export const CLAIM_CONTRACT = cleanAddress(process.env.NEXT_PUBLIC_CLAIM_CONTRACT || "");
 export const CLAIM_OPEN = process.env.NEXT_PUBLIC_CLAIM_OPEN === "true";
+// Game rewards (top 5 of the round) claim from their own contract, separate from the airdrop.
+export const REWARDS_CONTRACT = cleanAddress(process.env.NEXT_PUBLIC_REWARDS_CONTRACT || "");
+export const REWARDS_CLAIM_OPEN = process.env.NEXT_PUBLIC_REWARDS_CLAIM_OPEN === "true";
 const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 0);
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "";
-export const claimConfigured = Boolean(CLAIM_CONTRACT && CHAIN_ID && RPC_URL);
+export const chainReady = Boolean(CHAIN_ID && RPC_URL);
 
 export const chain = defineChain({
   id: CHAIN_ID || 1,
