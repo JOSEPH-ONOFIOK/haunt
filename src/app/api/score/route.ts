@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const name = cleanName(input.name);
   if (!name) return fail("Pick a nickname of 2 to 16 letters or numbers.");
   const wallet = cleanWallet(input.wallet);
-  if (!wallet) return fail("Add the wallet address (0x...) where prizes should be sent.");
+  if (!wallet) return fail("Add the wallet address (0x...) where $HAUNT rewards should be sent.");
   if (!(await store.limit(`score:${ip}`, 20, 600))) return fail("Too many posts. Try again in a few minutes.", 429);
   if (!(await verifyTurnstile(input.cf, ip))) return fail("The bot check failed. Please try again.");
 

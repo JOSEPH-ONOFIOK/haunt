@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { formatScore } from "./room";
 import { ROOMS } from "./rooms";
+import { ROUND } from "./rewards";
 import type { Score } from "./store";
 
 export const CARD = { width: 1200, height: 630 };
@@ -22,7 +23,7 @@ const GREEN = "#23f74b";
 const ORANGE = "#ff7a1a";
 
 /** The branded result card: nickname, escape time, rank and the HAUNT logo. */
-export async function renderCard(score: Pick<Score, "room" | "name" | "ms" | "hints" | "rank" | "dayRank">) {
+export async function renderCard(score: Pick<Score, "room" | "name" | "ms" | "hints" | "rank" | "dayRank" | "roundRank">) {
   const [spooky, round, hand, banner, mascot] = await loaded;
   const hints = score.hints === 0 ? "No hints" : `${score.hints} hint${score.hints === 1 ? "" : "s"}`;
 
@@ -50,7 +51,7 @@ export async function renderCard(score: Pick<Score, "room" | "name" | "ms" | "hi
           <div style={{ fontFamily: "Round", fontSize: 58, color: ORANGE, marginTop: 6 }}>{score.name}</div>
           <div style={{ display: "flex", gap: 18, marginTop: 18, fontSize: 30 }}>
             <div style={{ display: "flex", border: `3px solid ${GREEN}`, color: GREEN, borderRadius: 14, padding: "2px 18px" }}>
-              {`#${score.dayRank} today · #${score.rank} all time`}
+              {score.roundRank ? `#${score.roundRank} in ${ROUND.name} · #${score.rank} all time` : `#${score.rank} all time`}
             </div>
             <div style={{ display: "flex", border: "3px solid #3e3e3e", color: "#b9b0a3", borderRadius: 14, padding: "2px 18px" }}>{hints}</div>
           </div>

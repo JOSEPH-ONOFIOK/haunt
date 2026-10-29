@@ -1,7 +1,9 @@
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { connection } from "next/server";
+import type { AppStatus, Application, Claim, Snapshot } from "./airdrop";
 import type { RoomId } from "./rooms";
+import { ROUND, roundOpen } from "./rewards";
 
 // Storage, first one configured wins:
 //   Upstash Redis   UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
@@ -55,6 +57,8 @@ export type Score = {
   /** Positions when posted, printed on the scorecard. */
   rank: number;
   dayRank: number;
+  /** Position on the prize round's board, when posted during the round. */
+  roundRank?: number;
   /** Escape number in this room, counting every posted run. */
   n: number;
   hidden?: boolean;
@@ -70,7 +74,7 @@ export const today = () => dayOf(Date.now());
 const RUN_TTL = 60 * 60; // a run can be finished and posted within an hour of starting
 const DAY_TTL = 30 * 86400; // daily boards are kept a month for prize records
 
-type NewScore = Omit<Score, "rank" | "dayRank" | "n">;
+type NewScore = Omit<Score, "rank" | "dayRank" | "roundRank" | "n">;
 
 interface Store {
   getRun(id: string): Promise<Run | null>;
@@ -92,9 +96,29 @@ interface Store {
   stats(room: RoomId): Promise<Stats>;
   // Fixed-window rate limit. Returns true when the call is allowed.
   limit(key: string, max: number, windowSec: number): Promise<boolean>;
+
+  // ---- $HAUNT allocation applications ----
+  getApp(xid: string): Promise<Application | null>;
+  // Creates an application or changes a pending one's wallet. A wallet can belong to one application only.
+  saveApp(app: Application): Promise<"ok" | "wallet_taken">;
+  // Pending and rejected in the order they applied; approved in the order they were approved.
+  listApps(status: AppStatus, offset: number, n: number): Promise<Application[]>;
+  countApps(): Promise<Record<AppStatus, number>>;
+  // Returns false, changing nothing, when approving would pass the cap.
+  decide(xid: string, status: AppStatus, cap: number): Promise<boolean>;
+  // The frozen claim list. Meta is small; claims are looked up per wallet.
+  getSnapshotMeta(): Promise<Omit<Snapshot, "claims"> | null>;
+  getClaim(wallet: string): Promise<Claim | null>;
+  allClaims(): Promise<Claim[]>;
+  putSnapshot(s: Snapshot | null): Promise<void>;
 }
 
-const periodsOf = (s: { day: string }) => ["all", s.day];
+const STATUSES: AppStatus[] = ["pending", "approved", "rejected"];
+const appScore = (a: Application) => (a.status === "approved" ? (a.decidedAt ?? a.appliedAt) : a.appliedAt);
+const metaOf = (s: Snapshot): Omit<Snapshot, "claims"> => ({ merkleRoot: s.merkleRoot, tokenTotal: s.tokenTotal, decimals: s.decimals, frozenAt: s.frozenAt });
+
+// Every board a score belongs on: all time, its day, and the prize round if it was posted before the round ended.
+const periodsOf = (s: { day: string; at: number }) => ["all", s.day, ...(roundOpen(s.at) ? [ROUND.id] : [])];
 
 // ---------- Upstash ----------
 const URL_ = process.env.UPSTASH_REDIS_REST_URL;
@@ -145,7 +169,7 @@ const upstash: Store = {
     await redis("SET", `ban:${xid}`, Date.now());
     for (const room of ["study", "cellar"] as RoomId[]) {
       const days = Array.from({ length: 31 }, (_, i) => dayOf(Date.now() - i * 864e5));
-      for (const p of ["all", ...days]) {
+      for (const p of ["all", ROUND.id, ...days]) {
         await redis("ZREM", lbKey(room, p), xid);
         await redis("DEL", bestKey(room, p, xid));
       }
@@ -157,13 +181,13 @@ const upstash: Store = {
     for (const p of periodsOf(s)) {
       // LT only replaces the account's time when the new one is lower.
       await redis("ZADD", lbKey(s.room, p), "LT", s.ms, s.xid);
-      if (p !== "all") await redis("EXPIRE", lbKey(s.room, p), DAY_TTL);
+      if (p === s.day) await redis("EXPIRE", lbKey(s.room, p), DAY_TTL);
       const best = await redis<string | null>("ZSCORE", lbKey(s.room, p), s.xid);
-      if (Number(best) === s.ms) await redis("SET", bestKey(s.room, p, s.xid), s.id, ...(p === "all" ? [] : ["EX", DAY_TTL]));
+      if (Number(best) === s.ms) await redis("SET", bestKey(s.room, p, s.xid), s.id, ...(p === s.day ? ["EX", DAY_TTL] : []));
       ranks.push((await redis<number>("ZCOUNT", lbKey(s.room, p), "-inf", `(${s.ms}`)) + 1);
     }
     const n = await redis<number>("INCR", `escapes:${s.room}`);
-    const score: Score = { ...s, rank: ranks[0], dayRank: ranks[1], n };
+    const score: Score = { ...s, rank: ranks[0], dayRank: ranks[1], roundRank: ranks[2], n };
     await redis("SET", `score:${s.id}`, JSON.stringify(score));
     await redis("LPUSH", `recent:${s.room}`, s.id);
     await redis("LTRIM", `recent:${s.room}`, 0, 49);
@@ -203,6 +227,66 @@ const upstash: Store = {
     if (n === 1) await redis("EXPIRE", `rl:${key}`, windowSec);
     return n <= max;
   },
+
+  getApp: (xid) => getJson<Application>(`app:${xid}`),
+  async saveApp(app) {
+    const wkey = `appwallet:${app.wallet.toLowerCase()}`;
+    if ((await redis<string | null>("SET", wkey, app.xid, "NX")) !== "OK" && (await redis<string | null>("GET", wkey)) !== app.xid) return "wallet_taken";
+    const prev = await upstash.getApp(app.xid);
+    if (prev && prev.wallet.toLowerCase() !== app.wallet.toLowerCase()) await redis("DEL", `appwallet:${prev.wallet.toLowerCase()}`);
+    await redis("SET", `app:${app.xid}`, JSON.stringify(app));
+    await redis("ZADD", `apps:${app.status}`, appScore(app), app.xid);
+    return "ok";
+  },
+  async listApps(status, offset, n) {
+    const xids = await redis<string[]>("ZRANGE", `apps:${status}`, offset, offset + n - 1);
+    if (!xids.length) return [];
+    const vals = await redis<(string | null)[]>("MGET", ...xids.map((x) => `app:${x}`));
+    return vals.filter(Boolean).map((v) => JSON.parse(v!) as Application);
+  },
+  async countApps() {
+    const n = await Promise.all(STATUSES.map((st) => redis<number>("ZCARD", `apps:${st}`)));
+    return { pending: n[0], approved: n[1], rejected: n[2] };
+  },
+  async decide(xid, status, cap) {
+    const app = await upstash.getApp(xid);
+    if (!app || app.status === status) return Boolean(app);
+    if (status === "approved" && (await redis<number>("ZCARD", "apps:approved")) >= cap) return false;
+    const next = { ...app, status, decidedAt: Date.now() };
+    await redis("ZADD", `apps:${status}`, appScore(next), xid);
+    // Two admins approving at once could both pass the check above; the later one steps back.
+    if (status === "approved" && (await redis<number>("ZCARD", "apps:approved")) > cap) {
+      await redis("ZREM", "apps:approved", xid);
+      return false;
+    }
+    await redis("ZREM", `apps:${app.status}`, xid);
+    await redis("SET", `app:${xid}`, JSON.stringify(next));
+    return true;
+  },
+  getSnapshotMeta: () => getJson<Omit<Snapshot, "claims">>("airdrop:meta"),
+  getClaim: (wallet) => getJson<Claim>(`airdrop:claim:${wallet.toLowerCase()}`),
+  async allClaims() {
+    const wallets = await redis<string[]>("LRANGE", "airdrop:wallets", 0, -1);
+    const out: Claim[] = [];
+    for (let i = 0; i < wallets.length; i += 200) {
+      const vals = await redis<(string | null)[]>("MGET", ...wallets.slice(i, i + 200).map((w) => `airdrop:claim:${w}`));
+      out.push(...vals.filter(Boolean).map((v) => JSON.parse(v!) as Claim));
+    }
+    return out.sort((a, b) => a.index - b.index);
+  },
+  async putSnapshot(snap) {
+    // Clear the old list first, in batches small enough for one request each.
+    const old = await redis<string[]>("LRANGE", "airdrop:wallets", 0, -1);
+    for (let i = 0; i < old.length; i += 200) await redis("DEL", ...old.slice(i, i + 200).map((w) => `airdrop:claim:${w}`));
+    await redis("DEL", "airdrop:wallets", "airdrop:meta");
+    if (!snap) return;
+    for (let i = 0; i < snap.claims.length; i += 200) {
+      const batch = snap.claims.slice(i, i + 200);
+      await redis("MSET", ...batch.flatMap((c) => [`airdrop:claim:${c.account.toLowerCase()}`, JSON.stringify(c)]));
+      await redis("RPUSH", "airdrop:wallets", ...batch.map((c) => c.account.toLowerCase()));
+    }
+    await redis("SET", "airdrop:meta", JSON.stringify(metaOf(snap)));
+  },
 };
 
 // ---------- Local file ----------
@@ -216,8 +300,12 @@ type Db = {
   bans: Record<string, number>;
   /** "room|period|xid" → id of that account's fastest score on that board */
   best: Record<string, string>;
+  apps: Record<string, Application>;
+  /** lowercase wallet → xid of the application using it */
+  appWallets: Record<string, string>;
+  snapshot: Snapshot | null;
 };
-const EMPTY: Db = { runs: {}, once: {}, scores: {}, accounts: {}, bans: {}, best: {} };
+const EMPTY: Db = { runs: {}, once: {}, scores: {}, accounts: {}, bans: {}, best: {}, apps: {}, appWallets: {}, snapshot: null };
 const DIR = join(process.cwd(), ".data");
 const FILE = join(DIR, "haunt.json");
 const windows = new Map<string, { n: number; reset: number }>();
@@ -303,6 +391,7 @@ const file: Store = {
       }
       score.rank = board(d, s.room, "all").filter((o) => o.ms < s.ms).length + 1;
       score.dayRank = board(d, s.room, s.day).filter((o) => o.ms < s.ms).length + 1;
+      if (roundOpen(s.at)) score.roundRank = board(d, s.room, ROUND.id).filter((o) => o.ms < s.ms).length + 1;
       return score;
     });
   },
@@ -338,19 +427,67 @@ const file: Store = {
     }
     return ++w.n <= max;
   },
+
+  async getApp(xid) {
+    return (await db()).apps[xid] ?? null;
+  },
+  async saveApp(app) {
+    return mutate((d) => {
+      const w = app.wallet.toLowerCase();
+      if (d.appWallets[w] && d.appWallets[w] !== app.xid) return "wallet_taken" as const;
+      const prev = d.apps[app.xid];
+      if (prev) delete d.appWallets[prev.wallet.toLowerCase()];
+      d.appWallets[w] = app.xid;
+      d.apps[app.xid] = app;
+      return "ok" as const;
+    });
+  },
+  async listApps(status, offset, n) {
+    return Object.values((await db()).apps)
+      .filter((a) => a.status === status)
+      .sort((a, b) => appScore(a) - appScore(b))
+      .slice(offset, offset + n);
+  },
+  async countApps() {
+    const apps = Object.values((await db()).apps);
+    return { pending: 0, approved: 0, rejected: 0, ...Object.fromEntries(STATUSES.map((st) => [st, apps.filter((a) => a.status === st).length])) };
+  },
+  async decide(xid, status, cap) {
+    return mutate((d) => {
+      const app = d.apps[xid];
+      if (!app || app.status === status) return Boolean(app);
+      if (status === "approved" && Object.values(d.apps).filter((a) => a.status === "approved").length >= cap) return false;
+      d.apps[xid] = { ...app, status, decidedAt: Date.now() };
+      return true;
+    });
+  },
+  async getSnapshotMeta() {
+    const snap = (await db()).snapshot;
+    return snap ? metaOf(snap) : null;
+  },
+  async getClaim(wallet) {
+    return (await db()).snapshot?.claims.find((c) => c.account.toLowerCase() === wallet.toLowerCase()) ?? null;
+  },
+  async allClaims() {
+    return (await db()).snapshot?.claims ?? [];
+  },
+  async putSnapshot(snap) {
+    await mutate((d) => {
+      d.snapshot = snap;
+    });
+  },
 };
 
 const store: Store = URL_ && TOKEN ? upstash : file;
 
-export type BoardData = { room: RoomId; day: string; latest: Score[]; fastest: Score[]; today: Score[]; stats: Stats };
+export type BoardData = { room: RoomId; latest: Score[]; fastest: Score[]; round: Score[]; stats: Stats };
 
 /** Everything the homepage board shows for a room, read live. Null when storage can't be reached. */
 export async function boardData(room: RoomId): Promise<BoardData | null> {
   await connection();
-  const day = today();
   try {
-    const [latest, fastest, todays, stats] = await Promise.all([store.recent(room, 8), store.top(room, "all", 8), store.top(room, day, 8), store.stats(room)]);
-    return { room, day, latest, fastest, today: todays, stats };
+    const [latest, fastest, round, stats] = await Promise.all([store.recent(room, 8), store.top(room, "all", 8), store.top(room, ROUND.id, 8), store.stats(room)]);
+    return { room, latest, fastest, round, stats };
   } catch {
     return null;
   }
@@ -369,7 +506,7 @@ export async function topScores(room: RoomId, period: Period, n: number) {
 /** What anyone may see of a score: no wallet, no account id, no step timeline. */
 export const publicScore = (s: Score) => ({
   id: s.id, room: s.room, name: s.name, handle: s.handle, verified: s.verified,
-  ms: s.ms, hints: s.hints, at: s.at, day: s.day, rank: s.rank, dayRank: s.dayRank, n: s.n,
+  ms: s.ms, hints: s.hints, at: s.at, day: s.day, rank: s.rank, dayRank: s.dayRank, roundRank: s.roundRank, n: s.n,
 });
 export type PublicScore = ReturnType<typeof publicScore>;
 

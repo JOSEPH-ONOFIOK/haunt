@@ -7,6 +7,6 @@ export async function GET(req: Request) {
   if (!isRoomId(room)) return Response.json({ error: "Unknown room" }, { status: 400 });
   const data = await boardData(room);
   if (!data) return Response.json({ error: "Board unavailable" }, { status: 503 });
-  const pub = { ...data, latest: data.latest.map(publicScore), fastest: data.fastest.map(publicScore), today: data.today.map(publicScore) };
+  const pub = { ...data, latest: data.latest.map(publicScore), fastest: data.fastest.map(publicScore), round: data.round.map(publicScore) };
   return Response.json(pub, { headers: { "Cache-Control": "no-store" } });
 }

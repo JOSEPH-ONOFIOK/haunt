@@ -2,8 +2,10 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import ShareButtons from "./ShareButtons";
+import SignIn from "./SignIn";
 import Turnstile from "./Turnstile";
 import { formatScore } from "@/lib/room";
+import { ROUND, fmtHaunt, rewardFor } from "@/lib/rewards";
 import { TURNSTILE_SITE_KEY } from "@/lib/site";
 import type { PublicScore } from "@/lib/store";
 
@@ -23,7 +25,6 @@ export default function PostScore({ runId }: { runId: string }) {
   const [me, setMe] = useState<Me | null>(null);
   const [name, setName] = useState(savedName);
   const [wallet, setWallet] = useState("");
-  const [handle, setHandle] = useState("");
   const [cf, setCf] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -62,11 +63,6 @@ export default function PostScore({ runId }: { runId: string }) {
     }
   }
 
-  async function signInHandle(e: FormEvent) {
-    e.preventDefault();
-    if (await send("/api/auth/handle", { handle, cf })) await loadMe();
-  }
-
   async function submit(e: FormEvent) {
     e.preventDefault();
     const res = await send("/api/score", { id: runId, name, wallet, cf });
@@ -81,9 +77,12 @@ export default function PostScore({ runId }: { runId: string }) {
     return (
       <>
         <p className="rank-line">
-          <b>#{score.dayRank}</b> today · <b>#{score.rank}</b> all time
+          {score.roundRank ? <><b>#{score.roundRank}</b> in {ROUND.name} · </> : null}<b>#{score.rank}</b> all time
         </p>
-        {!score.eligible && <p className="muted">Your X account is too new or too small to win prizes, but your time still counts.</p>}
+        {score.roundRank && rewardFor(score.roundRank) > 0 && (
+          <p className="reward-line">Currently in a winning spot: {fmtHaunt(rewardFor(score.roundRank))}</p>
+        )}
+        {!score.eligible && <p className="muted">Your X account is too new or too small to win $HAUNT, but your time still counts.</p>}
         {/* eslint-disable-next-line @next/next/no-img-element -- a generated PNG, not a static asset */}
         <img className="scorecard" src={`/api/card/${score.id}`} width={1200} height={630} alt={`Scorecard: ${score.name} escaped in ${formatScore(score.ms)}`} />
         <ShareButtons id={score.id} ms={score.ms} />
@@ -96,32 +95,17 @@ export default function PostScore({ runId }: { runId: string }) {
   const bot = TURNSTILE_SITE_KEY ? <Turnstile siteKey={TURNSTILE_SITE_KEY} onToken={setCf} /> : null;
 
   if (!me.account) {
-    return me.mode === "x" ? (
-      <div className="name-form">
-        <p className="form-note">Prizes go to the fastest souls. Sign in with X so we know who you are.</p>
-        <a className="btn btn-green" href={`/api/auth/x/start?next=${encodeURIComponent(`/claim/${runId}`)}`}>Sign in with X to post</a>
-      </div>
-    ) : (
-      <form className="name-form" onSubmit={signInHandle}>
-        <label htmlFor="xh">Your X handle (preview mode, not verified)</label>
-        <div className="name-row">
-          <input id="xh" className="input" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@yourhandle" required autoCapitalize="off" spellCheck={false} />
-          <button className="btn btn-green" disabled={busy}>{busy ? "..." : "Continue"}</button>
-        </div>
-        {bot}
-        {error && <p className="form-error">{error}</p>}
-      </form>
-    );
+    return <SignIn mode={me.mode} next={`/claim/${runId}`} lead={`The top 5 each win ${fmtHaunt(50_000)}. Sign in with X so we know who you are.`} onSignedIn={loadMe} />;
   }
 
   return (
     <form className="name-form" onSubmit={submit}>
       <p className="form-note">
-        Signed in as <b>@{me.account.handle}</b>. Winners are checked before prizes are sent.
+        Signed in as <b>@{me.account.handle}</b>. Winners are checked before $HAUNT is sent.
       </p>
       <label htmlFor="nick">Nickname on the board</label>
       <input id="nick" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your nickname" maxLength={16} minLength={2} required autoComplete="nickname" autoCapitalize="off" spellCheck={false} />
-      <label htmlFor="wallet">Wallet for prizes (kept private)</label>
+      <label htmlFor="wallet">Wallet for $HAUNT rewards (kept private)</label>
       <input id="wallet" className="input input-mono" value={wallet} onChange={(e) => setWallet(e.target.value)} placeholder="0x..." required autoCapitalize="off" spellCheck={false} />
       {bot}
       <button className="btn btn-green" disabled={busy || (Boolean(TURNSTILE_SITE_KEY) && !cf)}>{busy ? "Posting..." : "Post my time"}</button>

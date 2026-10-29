@@ -1,6 +1,7 @@
 import Link from "next/link";
 import LiveBoard, { type PublicBoard } from "./LiveBoard";
-import { boardData, publicScore, today, topScores, type BoardData } from "@/lib/store";
+import { boardData, publicScore, topScores, type BoardData } from "@/lib/store";
+import { ROUND, fmtHaunt, rewardFor } from "@/lib/rewards";
 import { formatScore } from "@/lib/room";
 import { ROOM_IDS, type RoomId } from "@/lib/rooms";
 
@@ -11,11 +12,11 @@ export const toPublic = (d: BoardData): PublicBoard => ({
   ...d,
   latest: d.latest.map(publicScore),
   fastest: d.fastest.map(publicScore),
-  today: d.today.map(publicScore),
+  round: d.round.map(publicScore),
 });
 
 export default async function Leaderboard({ room, period, limit }: { room: RoomId; period: string; limit: number }) {
-  const scores = await topScores(room, period === "today" ? today() : "all", limit);
+  const scores = await topScores(room, period === "round" ? ROUND.id : "all", limit);
 
   if (scores === null) return <p className="board-empty">The leaderboard is hiding right now. Try again in a moment.</p>;
   if (!scores.length) return <p className="board-empty">No one has escaped yet. Be the first soul on the board.</p>;
@@ -28,6 +29,7 @@ export default async function Leaderboard({ room, period, limit }: { room: RoomI
           <Link className="board-name" href={`/s/${s.id}`}>{s.name}</Link>
           <span className="board-hints">{hintText(s.hints)}</span>
           <span className="board-time">{formatScore(s.ms)}</span>
+          {period === "round" && rewardFor(s.rank) > 0 && <span className="reward-chip">{fmtHaunt(rewardFor(s.rank))}</span>}
         </li>
       ))}
     </ol>

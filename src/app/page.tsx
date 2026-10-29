@@ -8,6 +8,9 @@ import TopBar from "./_components/TopBar";
 import { BoardSkeleton, HomeBoard } from "./_components/Leaderboard";
 import CopyAddress from "./_components/CopyAddress";
 import { BUY_URL, CHAIN_NAME, EXPLORER_URL, LAUNCH_AT, TOKEN_ADDRESS, X_HANDLE, X_URL } from "@/lib/site";
+import { ALLOCATION, MAX_APPROVED } from "@/lib/airdrop";
+
+const fmt = (n: number) => n.toLocaleString("en-US");
 
 export default function Home() {
   const launched = Boolean(TOKEN_ADDRESS && BUY_URL);
@@ -29,12 +32,45 @@ export default function Home() {
             <h1 className="hero-title">HAUNT</h1>
             <p className="hero-tag">Something moved into the mansion.</p>
             <p className="hero-intro">
-              HAUNT rises on October 31. Before the doors open, step inside, find the clues and escape the room
-              before the candles die. The fastest souls take the leaderboard.
+              HAUNT rises on October 31. 2,000 approved users get 100,000 $HAUNT each in the airdrop. Then step inside the
+              mansion: the 5 fastest souls each win 50,000 $HAUNT.
             </p>
             <Countdown target={LAUNCH_AT} />
             <div className="hero-cta">
-              <Link href="/play" className="btn btn-green btn-big">Enter the Mansion</Link>
+              <Link href="/airdrop" className="btn btn-green btn-big">Apply for the airdrop</Link>
+              <Link href="/play" className="btn btn-orange btn-big">Enter the Mansion</Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="section" id="airdrop">
+          <div className="wrap">
+            <p className="eyebrow">$HAUNT airdrop</p>
+            <h2 className="section-title">The <em>2,000</em></h2>
+            <div className="ad-grid">
+              <div className="ad-card">
+                <h3 className="ad-title"><span className="ad-num">1</span> Airdrop application</h3>
+                <ul className="ad-list">
+                  <li>Sign in with X</li>
+                  <li>Submit your Robinhood Chain wallet</li>
+                  <li>Track your application status</li>
+                </ul>
+              </div>
+              <div className="ad-card">
+                <h3 className="ad-title"><span className="ad-num">2</span> Allocation details</h3>
+                <dl className="facts">
+                  <div><dt>Approved users</dt><dd>{fmt(MAX_APPROVED)}</dd></div>
+                  <div><dt>Each receives</dt><dd>{fmt(ALLOCATION)} $HAUNT</dd></div>
+                </dl>
+              </div>
+              <div className="ad-card">
+                <h3 className="ad-title"><span className="ad-num">3</span> Claim status</h3>
+                <p className="claim-off"><span className="status-pill status-none">Disabled</span></p>
+                <p className="muted">Until launch and claims open.</p>
+              </div>
+            </div>
+            <div className="hero-cta" style={{ justifyContent: "flex-start" }}>
+              <Link href="/airdrop" className="btn btn-green btn-big">Apply now</Link>
             </div>
           </div>
         </section>
@@ -52,7 +88,7 @@ export default function Home() {
         <section className="section">
           <div className="wrap">
             <h2 className="section-title">Escape the <em>mansion</em></h2>
-            <p className="section-lead">Two locked rooms, five minutes each, and something in a hood watching you. The fastest souls win prizes.</p>
+            <p className="section-lead">Two locked rooms, five minutes each, and something in a hood watching you. The 5 fastest souls each win 50,000 $HAUNT.</p>
             <div className="cards">
               <div className="card">
                 <span className="num">1</span>
@@ -95,7 +131,7 @@ export default function Home() {
                   <div className="token-actions">
                     <CopyAddress address={TOKEN_ADDRESS} />
                     {EXPLORER_URL && (
-                      <a className="btn btn-sm btn-ghost" href={`${EXPLORER_URL}${TOKEN_ADDRESS}`} target="_blank" rel="noopener noreferrer">View on explorer</a>
+                      <a className="btn btn-sm btn-ghost" href={`${EXPLORER_URL}/token/${TOKEN_ADDRESS}`} target="_blank" rel="noopener noreferrer">View on explorer</a>
                     )}
                     <a className="btn btn-green" href={BUY_URL} target="_blank" rel="noopener noreferrer">Buy HAUNT</a>
                   </div>

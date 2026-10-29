@@ -5,10 +5,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useClock } from "./useClock";
 import { formatScore } from "@/lib/room";
+import { REWARDS, ROUND, fmtHaunt, rewardFor } from "@/lib/rewards";
 import { ROOMS, ROOM_IDS, type RoomId } from "@/lib/rooms";
 import type { PublicScore, Stats } from "@/lib/store";
 
-export type PublicBoard = { room: RoomId; day: string; latest: PublicScore[]; fastest: PublicScore[]; today: PublicScore[]; stats: Stats };
+export type PublicBoard = { room: RoomId; latest: PublicScore[]; fastest: PublicScore[]; round: PublicScore[]; stats: Stats };
 
 const REFRESH_MS = 15_000;
 
@@ -23,10 +24,18 @@ function ago(at: number, now: number | null) {
 
 const hintText = (h: number) => (h ? `${h} hint${h === 1 ? "" : "s"}` : "no hints");
 
+function untilEnd(now: number | null) {
+  if (now === null) return "--";
+  const s = Math.max(0, Math.floor((new Date(ROUND.endsAt).getTime() - now) / 1000));
+  if (s === 0) return "Ended";
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
+
 export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicBoard> }) {
   const [boards, setBoards] = useState(initial);
   const [room, setRoom] = useState<RoomId>("study");
-  const [period, setPeriod] = useState<"today" | "all">("today");
+  const [period, setPeriod] = useState<"round" | "all">("round");
   const now = useClock();
 
   useEffect(() => {
@@ -45,8 +54,9 @@ export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicB
     return () => clearInterval(id);
   }, [room]);
 
-  const { latest, fastest, today, stats } = boards[room];
-  const ranked = period === "today" ? today : fastest;
+  const { latest, fastest, round, stats } = boards[room];
+  const ranked = period === "round" ? round : fastest;
+  const ended = untilEnd(now) === "Ended";
 
   return (
     <>
@@ -65,12 +75,14 @@ export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicB
           <span className="stat-sub">{fastest[0] ? `by ${fastest[0].name}` : "Still unclaimed"}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">Escapes</span>
-          <span className="stat-value">{stats.escapes}</span>
+          <span className="stat-label">Top {REWARDS.length} win</span>
+          <span className="stat-value">{REWARDS[0].toLocaleString("en-US")}</span>
+          <span className="stat-sub">$HAUNT each</span>
         </div>
         <div className="stat">
-          <span className="stat-label">Souls on the board</span>
-          <span className="stat-value">{stats.souls}</span>
+          <span className="stat-label">{ROUND.name} {ended ? "" : "ends in"}</span>
+          <span className="stat-value">{untilEnd(now)}</span>
+          <span className="stat-sub">{ended ? "Winners are being verified" : "2 hours before Halloween"}</span>
         </div>
       </div>
 
@@ -103,9 +115,9 @@ export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicB
           <header className="panel-head">
             <h3 id="fastest-title">Fastest souls</h3>
             <div className="mini-tabs" role="tablist" aria-label="Period">
-              {(["today", "all"] as const).map((p) => (
+              {(["round", "all"] as const).map((p) => (
                 <button key={p} role="tab" aria-selected={p === period} className={`mini-tab${p === period ? " mini-tab-on" : ""}`} onClick={() => setPeriod(p)}>
-                  {p === "today" ? "Today" : "All time"}
+                  {p === "round" ? ROUND.name : "All time"}
                 </button>
               ))}
             </div>
@@ -120,14 +132,17 @@ export default function LiveBoard({ initial }: { initial: Record<RoomId, PublicB
                     <span className="feed-sub">{hintText(s.hints)}</span>
                   </div>
                   <span className="feed-time">{formatScore(s.ms)}</span>
+                  {period === "round" && rewardFor(s.rank) > 0 && <span className="reward-chip">{fmtHaunt(rewardFor(s.rank))}</span>}
                 </li>
               ))}
             </ol>
           ) : (
-            <p className="panel-empty">{period === "today" ? "Today's top spot is still unclaimed. Take it." : "The top spot is still unclaimed. Take it."}</p>
+            <p className="panel-empty">
+              {period === "round" ? `No one has claimed a winning spot yet. The top ${REWARDS.length} each win ${fmtHaunt(REWARDS[0])}.` : "The top spot is still unclaimed. Take it."}
+            </p>
           )}
           <footer className="panel-foot">
-            <span>Today resets at 00:00 UTC</span>
+            <span>{period === "round" ? `Top ${REWARDS.length} at the end of ${ROUND.name} win` : "Best time per X account"}</span>
             <Link href={`/leaderboard?room=${room}&period=${period}`} className="panel-link">See all</Link>
           </footer>
         </section>
