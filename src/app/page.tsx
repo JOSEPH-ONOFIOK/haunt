@@ -8,7 +8,7 @@ import TopBar from "./_components/TopBar";
 import { BoardSkeleton, HomeBoard } from "./_components/Leaderboard";
 import CopyAddress from "./_components/CopyAddress";
 import { BUY_URL, CHAIN_NAME, EXPLORER_URL, LAUNCH_AT, TOKEN_ADDRESS, X_HANDLE, X_URL } from "@/lib/site";
-import { ALLOCATION, MAX_APPROVED } from "@/lib/airdrop";
+import { ALLOCATION } from "@/lib/airdrop";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
@@ -32,12 +32,11 @@ export default function Home() {
             <h1 className="hero-title">HAUNT</h1>
             <p className="hero-tag">Something moved into the mansion.</p>
             <p className="hero-intro">
-              HAUNT rises on October 31. 2,000 approved users get 100,000 $HAUNT each in the airdrop. Then step inside the
-              mansion: the 5 fastest souls each win 50,000 $HAUNT.
+              HAUNT rises on October 31. Step inside the mansion: the 5 fastest souls each win 50,000 $HAUNT.
             </p>
             <Countdown target={LAUNCH_AT} />
             <div className="hero-cta">
-              <Link href="/airdrop" className="btn btn-green btn-big">Apply for the airdrop</Link>
+              <Link href="/airdrop" className="btn btn-green btn-big">Claim 100,000 $HAUNT</Link>
               <Link href="/play" className="btn btn-orange btn-big">Enter the Mansion</Link>
             </div>
           </div>
@@ -46,32 +45,34 @@ export default function Home() {
         <section className="section" id="airdrop">
           <div className="wrap">
             <p className="eyebrow">$HAUNT airdrop</p>
-            <h2 className="section-title">The <em>2,000</em></h2>
+            <h2 className="section-title">Claim <em>100,000</em> $HAUNT</h2>
+            <p className="section-lead">Complete 5 tasks to unlock your allocation.</p>
             <div className="ad-grid">
               <div className="ad-card">
-                <h3 className="ad-title"><span className="ad-num">1</span> Airdrop application</h3>
+                <h3 className="ad-title"><span className="ad-num">1</span> Unlock your allocation</h3>
                 <ul className="ad-list">
-                  <li>Sign in with X</li>
-                  <li>Submit your Robinhood Chain wallet</li>
-                  <li>Track your application status</li>
+                  <li>Enter your X username</li>
+                  <li>Complete 5 quick tasks</li>
+                  <li>Add your Robinhood Chain wallet</li>
+                  <li>Get your permit card and post it in the comments</li>
                 </ul>
-                <p className="fine">Applications close 2 hours before Halloween.</p>
               </div>
               <div className="ad-card">
                 <h3 className="ad-title"><span className="ad-num">2</span> Allocation details</h3>
                 <dl className="facts">
-                  <div><dt>Approved users</dt><dd>{fmt(MAX_APPROVED)}</dd></div>
-                  <div><dt>Each receives</dt><dd>{fmt(ALLOCATION)} $HAUNT</dd></div>
+                  <div><dt>Each allocation</dt><dd>{fmt(ALLOCATION)} $HAUNT</dd></div>
+                  <div><dt>Chain</dt><dd>Robinhood Chain</dd></div>
                 </dl>
               </div>
               <div className="ad-card">
                 <h3 className="ad-title"><span className="ad-num">3</span> Claim status</h3>
                 <p className="claim-off"><span className="status-pill status-none">Disabled</span></p>
                 <p className="muted">Until launch and claims open.</p>
+                <p className="fine">Claims close 2 hours before Halloween.</p>
               </div>
             </div>
             <div className="hero-cta" style={{ justifyContent: "flex-start" }}>
-              <Link href="/airdrop" className="btn btn-green btn-big">Apply now</Link>
+              <Link href="/airdrop" className="btn btn-green btn-big">Claim {fmt(ALLOCATION)} $HAUNT</Link>
             </div>
           </div>
         </section>

@@ -6,36 +6,25 @@ import type { RoomId } from "./rooms";
 import { ROUND, roundOpen } from "./rewards";
 
 // Storage, first one configured wins:
-//   Upstash Redis   UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
+//   Upstash Redis   UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN   (drop-in for heavy traffic)
+//   Google Sheets   GOOGLE_SHEETS_WEBAPP_URL (Apps Script web app, see scripts/apps-script), like the militia site
 //   JSON file       .data/ for local development
+//
+// Runs in progress are not stored at all: they live in signed tickets (see runs.ts). Only the two things a
+// player could hide by replaying an old ticket, hints and wrong codes, are counted here.
 
-/** One play of a room, created by the server when the player presses Begin. */
-export type Run = {
-  id: string;
-  room: RoomId;
-  seed: number;
-  startedAt: number;
-  hints: number;
-  /** Ms after the start at which each checkpoint was reached. */
-  steps: Record<string, number>;
-  /** Wrong final codes sent to the server. Real players never send one, so a few voids the run. */
-  wrong: number;
-  /** Official time in ms, set once the server has checked the final code. */
-  ms?: number;
-  /** Set when the run broke a rule and can no longer be posted. */
-  void?: string;
-};
-
-/** The player behind a score. xid is the X account id, or "h:handle" for typed (unverified) handles. */
+/** The player behind a score. xid is the X account id, or "h:handle" for typed (developer test) handles. */
 export type Account = {
   xid: string;
   handle: string;
   verified: boolean;
-  /** Old and established enough on X to win prizes. */
+  /** Old and established enough on X to win $HAUNT. */
   eligible: boolean;
   xCreatedAt?: string;
   followers?: number;
   wallet?: string;
+  /** X profile picture, full size. */
+  avatar?: string;
   firstSeen: number;
 };
 
@@ -65,31 +54,30 @@ export type Score = {
 };
 
 export type Stats = { escapes: number; souls: number; fastestMs: number | null };
-/** A board is all time ("all") or a single UTC day ("2026-10-31"). */
+/** A board is all time ("all"), the prize round (ROUND.id) or a single UTC day ("2026-10-31"). */
 export type Period = string;
+export type RunMarks = { hints: number; wrong: number };
 
 export const dayOf = (at: number) => new Date(at).toISOString().slice(0, 10);
 export const today = () => dayOf(Date.now());
 
-const RUN_TTL = 60 * 60; // a run can be finished and posted within an hour of starting
-const DAY_TTL = 30 * 86400; // daily boards are kept a month for prize records
+const RUN_TTL = 60 * 60; // seconds: a run's hint and wrong-code counts are only needed for an hour
+const DAY_TTL = 30 * 86400; // daily boards are kept a month
 
 type NewScore = Omit<Score, "rank" | "dayRank" | "roundRank" | "n">;
 
 interface Store {
-  getRun(id: string): Promise<Run | null>;
-  putRun(run: Run): Promise<void>;
-  // Claims a one-off action (finishing or posting a run). Returns false if it was already taken.
-  once(key: string): Promise<boolean>;
+  runMarks(id: string): Promise<RunMarks>;
+  markRun(id: string, field: keyof RunMarks): Promise<RunMarks>;
   getAccount(xid: string): Promise<Account | null>;
   putAccount(a: Account): Promise<void>;
   banned(xid: string): Promise<boolean>;
   // Bans an account and takes all its entries off every board.
   ban(xid: string): Promise<void>;
   getScore(id: string): Promise<Score | null>;
-  // Saves the score; on each board it replaces the account's entry only if it is faster.
-  postScore(score: NewScore): Promise<Score>;
-  // Hides one run and takes it off the boards it was leading for that account.
+  // Saves the score and returns it with its ranks. Null if this run was already posted.
+  postScore(score: NewScore): Promise<Score | null>;
+  // Takes one run off the boards.
   hide(score: Score): Promise<void>;
   top(room: RoomId, period: Period, n: number): Promise<Score[]>;
   recent(room: RoomId, n: number): Promise<Score[]>;
@@ -99,14 +87,16 @@ interface Store {
 
   // ---- $HAUNT allocation applications ----
   getApp(xid: string): Promise<Application | null>;
+  // The application behind a card's permit id.
+  appByPermit(permit: string): Promise<Application | null>;
   // Creates an application or changes a pending one's wallet. A wallet can belong to one application only.
   saveApp(app: Application): Promise<"ok" | "wallet_taken">;
   // Pending and rejected in the order they applied; approved in the order they were approved.
   listApps(status: AppStatus, offset: number, n: number): Promise<Application[]>;
   countApps(): Promise<Record<AppStatus, number>>;
-  // Returns false, changing nothing, when approving would pass the cap.
-  decide(xid: string, status: AppStatus, cap: number): Promise<boolean>;
-  // A frozen claim list. Meta is small; airdrop claims are looked up by wallet, reward claims by X account.
+  // Moves applications to a status in one go. Approvals stop at the cap; `capped` counts the ones refused.
+  decide(xids: string[], status: AppStatus, cap: number): Promise<{ changed: number; capped: number }>;
+  // A frozen claim list. Airdrop claims are looked up by wallet, reward claims by X account.
   getSnapshotMeta(list: ClaimList): Promise<Omit<Snapshot, "claims"> | null>;
   getClaim(list: ClaimList, key: string): Promise<Claim | null>;
   allClaims(list: ClaimList): Promise<Claim[]>;
@@ -121,6 +111,51 @@ const metaOf = (s: Snapshot): Omit<Snapshot, "claims"> => ({ merkleRoot: s.merkl
 
 // Every board a score belongs on: all time, its day, and the prize round if it was posted before the round ended.
 const periodsOf = (s: { day: string; at: number }) => ["all", s.day, ...(roundOpen(s.at) ? [ROUND.id] : [])];
+const onBoard = (s: Score, period: Period) => period === "all" || (period === ROUND.id ? roundOpen(s.at) : s.day === period);
+
+/**
+ * A board computed from a full list of scores: each account's fastest visible run, fastest first.
+ * Used by the file and sheet stores; Upstash keeps sorted sets instead.
+ */
+function boardFrom(scores: Score[], bans: Set<string>, room: RoomId, period: Period) {
+  const best = new Map<string, Score>();
+  for (const s of scores) {
+    if (s.room !== room || s.hidden || bans.has(s.xid) || !onBoard(s, period)) continue;
+    const prev = best.get(s.xid);
+    if (!prev || s.ms < prev.ms || (s.ms === prev.ms && s.at < prev.at)) best.set(s.xid, s);
+  }
+  return [...best.values()].sort((a, b) => a.ms - b.ms || a.at - b.at);
+}
+
+/** Ranks for a new score against everything already posted, then the score itself. */
+function ranked(scores: Score[], bans: Set<string>, s: NewScore): Score {
+  const rankIn = (period: Period) => boardFrom(scores, bans, s.room, period).filter((o) => o.xid !== s.xid && o.ms < s.ms).length + 1;
+  return {
+    ...s,
+    rank: rankIn("all"),
+    dayRank: rankIn(s.day),
+    ...(roundOpen(s.at) ? { roundRank: rankIn(ROUND.id) } : {}),
+    n: scores.filter((o) => o.room === s.room).length + 1,
+  };
+}
+
+const statsFrom = (scores: Score[], bans: Set<string>, room: RoomId): Stats => {
+  const b = boardFrom(scores, bans, room, "all");
+  return { escapes: scores.filter((s) => s.room === room).length, souls: b.length, fastestMs: b[0]?.ms ?? null };
+};
+
+// Fixed-window rate limits kept in this server's memory. Used by the file and sheet stores: each server
+// instance counts on its own, which is enough to slow down scripted floods.
+const windows = new Map<string, { n: number; reset: number }>();
+function memoryLimit(key: string, max: number, windowSec: number) {
+  const now = Date.now();
+  const w = windows.get(key);
+  if (!w || w.reset < now) {
+    windows.set(key, { n: 1, reset: now + windowSec * 1000 });
+    return true;
+  }
+  return ++w.n <= max;
+}
 
 // ---------- Upstash ----------
 const URL_ = process.env.UPSTASH_REDIS_REST_URL;
@@ -153,12 +188,14 @@ async function scoresByIds(ids: (string | null)[]) {
 }
 
 const upstash: Store = {
-  getRun: (id) => getJson<Run>(`run:${id}`),
-  async putRun(run) {
-    await redis("SET", `run:${run.id}`, JSON.stringify(run), "EX", RUN_TTL);
+  async runMarks(id) {
+    const [h, w] = await redis<(string | null)[]>("HMGET", `run:${id}`, "hints", "wrong");
+    return { hints: Number(h ?? 0), wrong: Number(w ?? 0) };
   },
-  async once(key) {
-    return (await redis<string | null>("SET", `once:${key}`, "1", "NX", "EX", RUN_TTL)) === "OK";
+  async markRun(id, field) {
+    await redis("HINCRBY", `run:${id}`, field, 1);
+    await redis("EXPIRE", `run:${id}`, RUN_TTL);
+    return upstash.runMarks(id);
   },
   getAccount: (xid) => getJson<Account>(`acct:${xid}`),
   async putAccount(a) {
@@ -179,6 +216,8 @@ const upstash: Store = {
   },
   getScore: (id) => getJson<Score>(`score:${id}`),
   async postScore(s) {
+    // Claims the run id first, so the same run can't be posted twice.
+    if ((await redis<string | null>("SET", `score:${s.id}`, "{}", "NX")) !== "OK") return null;
     const ranks: number[] = [];
     for (const p of periodsOf(s)) {
       // LT only replaces the account's time when the new one is lower.
@@ -189,7 +228,7 @@ const upstash: Store = {
       ranks.push((await redis<number>("ZCOUNT", lbKey(s.room, p), "-inf", `(${s.ms}`)) + 1);
     }
     const n = await redis<number>("INCR", `escapes:${s.room}`);
-    const score: Score = { ...s, rank: ranks[0], dayRank: ranks[1], roundRank: ranks[2], n };
+    const score: Score = { ...s, rank: ranks[0], dayRank: ranks[1], ...(ranks[2] ? { roundRank: ranks[2] } : {}), n };
     await redis("SET", `score:${s.id}`, JSON.stringify(score));
     await redis("LPUSH", `recent:${s.room}`, s.id);
     await redis("LTRIM", `recent:${s.room}`, 0, 49);
@@ -231,6 +270,10 @@ const upstash: Store = {
   },
 
   getApp: (xid) => getJson<Application>(`app:${xid}`),
+  async appByPermit(permit) {
+    const xid = await redis<string | null>("GET", `permit:${permit}`);
+    return xid ? upstash.getApp(xid) : null;
+  },
   async saveApp(app) {
     const wkey = `appwallet:${app.wallet.toLowerCase()}`;
     if ((await redis<string | null>("SET", wkey, app.xid, "NX")) !== "OK" && (await redis<string | null>("GET", wkey)) !== app.xid) return "wallet_taken";
@@ -238,6 +281,7 @@ const upstash: Store = {
     if (prev && prev.wallet.toLowerCase() !== app.wallet.toLowerCase()) await redis("DEL", `appwallet:${prev.wallet.toLowerCase()}`);
     await redis("SET", `app:${app.xid}`, JSON.stringify(app));
     await redis("ZADD", `apps:${app.status}`, appScore(app), app.xid);
+    if (app.permit) await redis("SET", `permit:${app.permit}`, app.xid);
     return "ok";
   },
   async listApps(status, offset, n) {
@@ -250,20 +294,29 @@ const upstash: Store = {
     const n = await Promise.all(STATUSES.map((st) => redis<number>("ZCARD", `apps:${st}`)));
     return { pending: n[0], approved: n[1], rejected: n[2] };
   },
-  async decide(xid, status, cap) {
-    const app = await upstash.getApp(xid);
-    if (!app || app.status === status) return Boolean(app);
-    if (status === "approved" && (await redis<number>("ZCARD", "apps:approved")) >= cap) return false;
-    const next = { ...app, status, decidedAt: Date.now() };
-    await redis("ZADD", `apps:${status}`, appScore(next), xid);
-    // Two admins approving at once could both pass the check above; the later one steps back.
-    if (status === "approved" && (await redis<number>("ZCARD", "apps:approved")) > cap) {
-      await redis("ZREM", "apps:approved", xid);
-      return false;
+  async decide(xids, status, cap) {
+    let changed = 0;
+    let capped = 0;
+    for (const xid of xids) {
+      const app = await upstash.getApp(xid);
+      if (!app || app.status === status) continue;
+      if (status === "approved" && (await redis<number>("ZCARD", "apps:approved")) >= cap) {
+        capped++;
+        continue;
+      }
+      const next = { ...app, status, decidedAt: Date.now() };
+      await redis("ZADD", `apps:${status}`, appScore(next), xid);
+      // Two admins approving at once could both pass the check above; the later one steps back.
+      if (status === "approved" && (await redis<number>("ZCARD", "apps:approved")) > cap) {
+        await redis("ZREM", "apps:approved", xid);
+        capped++;
+        continue;
+      }
+      await redis("ZREM", `apps:${app.status}`, xid);
+      await redis("SET", `app:${xid}`, JSON.stringify(next));
+      changed++;
     }
-    await redis("ZREM", `apps:${app.status}`, xid);
-    await redis("SET", `app:${xid}`, JSON.stringify(next));
-    return true;
+    return { changed, capped };
   },
   getSnapshotMeta: (list) => getJson<Omit<Snapshot, "claims">>(`${list}:meta`),
   getClaim: (list, key) => getJson<Claim>(`${list}:claim:${key.toLowerCase()}`),
@@ -291,26 +344,210 @@ const upstash: Store = {
   },
 };
 
+// ---------- Google Sheets (Apps Script web app) ----------
+const SHEETS_URL = process.env.GOOGLE_SHEETS_WEBAPP_URL;
+const SHEETS_SECRET = process.env.SHEETS_WEBHOOK_SECRET;
+// Lists are cached per server instance to spare Apps Script quota, so boards can lag by up to this long.
+const LIST_TTL = 15_000;
+
+async function sheetGet<T>(params: Record<string, string>): Promise<T> {
+  const url = new URL(SHEETS_URL!);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  if (SHEETS_SECRET) url.searchParams.set("secret", SHEETS_SECRET);
+  const res = await fetch(url, { cache: "no-store", redirect: "follow", signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Sheets web app returned ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`Sheets web app: ${data.error}`);
+  return data as T;
+}
+
+async function sheetPost<T>(body: Record<string, unknown>): Promise<T & { error?: string }> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(SHEETS_URL!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, secret: SHEETS_SECRET }),
+      redirect: "follow",
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!res.ok) throw new Error(`Sheets web app returned ${res.status}`);
+    const data = await res.json();
+    // "busy" means the script lock was held for 20s; worth a couple of retries
+    if (data.error === "busy" && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 500 + attempt * 800));
+      continue;
+    }
+    return data;
+  }
+}
+
+async function sheetWrite(body: Record<string, unknown>) {
+  const d = await sheetPost<Record<string, unknown>>(body);
+  if (d.error) throw new Error(`Sheets web app: ${d.error}`);
+  return d;
+}
+
+/** A list read from the sheet, cached per instance and shared between simultaneous requests. */
+function cachedList<T>(param: string, field: string) {
+  let cache: { at: number; items: T[] } | null = null;
+  let loading: Promise<T[]> | null = null;
+  return {
+    async get(): Promise<T[]> {
+      if (cache && Date.now() - cache.at < LIST_TTL) return cache.items;
+      loading ??= sheetGet<Record<string, T[]>>({ [param]: "1" })
+        .then((d) => {
+          cache = { at: Date.now(), items: d[field] };
+          return d[field];
+        })
+        .finally(() => {
+          loading = null;
+        });
+      return loading;
+    },
+    /** Applies this instance's own write straight away instead of waiting for the next read. */
+    update(fn: (items: T[]) => T[]) {
+      if (cache) cache = { ...cache, items: fn(cache.items) };
+    },
+    clear() {
+      cache = null;
+    },
+  };
+}
+
+const sheetScores = cachedList<Score>("scores", "scores");
+const sheetBans = cachedList<string>("bans", "bans");
+const sheetApps = cachedList<Application>("apps", "apps");
+const sheetClaims = { airdrop: cachedList<Claim>("claims_airdrop", "claims"), rewards: cachedList<Claim>("claims_rewards", "claims") };
+const banSet = async () => new Set(await sheetBans.get());
+
+/**
+ * Drops this server's cached sheet lists so the next reads are exact. Admin pages call it: the public board
+ * can lag a few seconds, but a review screen has to show a hide or an approval straight away.
+ */
+export function freshReads() {
+  [sheetScores, sheetBans, sheetApps, sheetClaims.airdrop, sheetClaims.rewards].forEach((l) => l.clear());
+}
+const fmtMs = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}.${Math.floor(ms / 100) % 10}`;
+
+// Human readable columns written next to the raw record, so the team can read and filter the sheet.
+const scoreColumns = (s: Score) => ({ time: fmtMs(s.ms), round: roundOpen(s.at) ? ROUND.name : "" });
+
+const sheets: Store = {
+  async runMarks(id) {
+    return sheetGet<RunMarks>({ run: id });
+  },
+  async markRun(id, field) {
+    const d = await sheetWrite({ action: "markRun", id, field });
+    return { hints: Number(d.hints ?? 0), wrong: Number(d.wrong ?? 0) };
+  },
+  async getAccount(xid) {
+    return (await sheetGet<{ account: Account | null }>({ account: xid })).account;
+  },
+  async putAccount(a) {
+    await sheetWrite({ action: "putAccount", account: a });
+  },
+  async banned(xid) {
+    return (await banSet()).has(xid);
+  },
+  async ban(xid) {
+    await sheetWrite({ action: "ban", xid });
+    sheetBans.update((b) => [...b, xid]);
+  },
+  async getScore(id) {
+    const cached = (await sheetScores.get()).find((s) => s.id === id);
+    return cached ?? (await sheetGet<{ score: Score | null }>({ score: id })).score;
+  },
+  async postScore(s) {
+    // Ranks come from this instance's view of the board; the sheet only refuses a run posted twice.
+    const score = ranked(await sheetScores.get(), await banSet(), s);
+    const d = await sheetPost<{ ok?: boolean }>({ action: "postScore", score, display: scoreColumns(score) });
+    if (d.error === "duplicate") return null;
+    if (d.error) throw new Error(`Sheets web app: ${d.error}`);
+    sheetScores.update((list) => [...list, score]);
+    return score;
+  },
+  async hide(s) {
+    await sheetWrite({ action: "hideScore", id: s.id });
+    sheetScores.update((list) => list.map((o) => (o.id === s.id ? { ...o, hidden: true } : o)));
+  },
+  async top(room, period, n) {
+    return boardFrom(await sheetScores.get(), await banSet(), room, period)
+      .slice(0, n)
+      .map((s, i) => ({ ...s, rank: i + 1 }));
+  },
+  async recent(room, n) {
+    const bans = await banSet();
+    return (await sheetScores.get())
+      .filter((s) => s.room === room && !s.hidden && !bans.has(s.xid))
+      .sort((a, b) => b.at - a.at)
+      .slice(0, n);
+  },
+  async stats(room) {
+    return statsFrom(await sheetScores.get(), await banSet(), room);
+  },
+  limit: async (key, max, windowSec) => memoryLimit(key, max, windowSec),
+
+  async getApp(xid) {
+    return (await sheetGet<{ app: Application | null }>({ app: xid })).app;
+  },
+  async appByPermit(permit) {
+    return (await sheetApps.get()).find((a) => a.permit === permit) ?? null;
+  },
+  async saveApp(app) {
+    // The script checks the wallet isn't on another application inside its lock.
+    const d = await sheetPost<{ ok?: boolean }>({ action: "saveApp", app });
+    if (d.error === "wallet_taken") return "wallet_taken";
+    if (d.error) throw new Error(`Sheets web app: ${d.error}`);
+    sheetApps.update((list) => [...list.filter((a) => a.xid !== app.xid), app]);
+    return "ok";
+  },
+  async listApps(status, offset, n) {
+    return (await sheetApps.get())
+      .filter((a) => a.status === status)
+      .sort((a, b) => appScore(a) - appScore(b))
+      .slice(offset, offset + n);
+  },
+  async countApps() {
+    const apps = await sheetApps.get();
+    return { pending: 0, approved: 0, rejected: 0, ...Object.fromEntries(STATUSES.map((st) => [st, apps.filter((a) => a.status === st).length])) };
+  },
+  async decide(xids, status, cap) {
+    // One call for the whole batch. The cap is checked inside the script's lock, so two admins can't pass it together.
+    const d = await sheetWrite({ action: "decide", xids, status, cap, now: Date.now() });
+    sheetApps.clear();
+    return { changed: Number(d.changed ?? 0), capped: Number(d.capped ?? 0) };
+  },
+  async getSnapshotMeta(list) {
+    return (await sheetGet<{ meta: Omit<Snapshot, "claims"> | null }>({ meta: list })).meta;
+  },
+  async getClaim(list, key) {
+    return (await sheetClaims[list].get()).find((c) => claimKey(list, c).toLowerCase() === key.toLowerCase()) ?? null;
+  },
+  async allClaims(list) {
+    return [...(await sheetClaims[list].get())].sort((a, b) => a.index - b.index);
+  },
+  async putSnapshot(list, snap) {
+    await sheetWrite({ action: "putSnapshot", list, meta: snap ? metaOf(snap) : null, claims: snap?.claims ?? [] });
+    sheetClaims[list].clear();
+  },
+};
+
 // ---------- Local file ----------
 // For local development only. Reads the file fresh on every call: Next.js loads each
 // route as its own bundle, so an in-memory copy would go stale between routes.
 type Db = {
-  runs: Record<string, Run>;
-  once: Record<string, number>;
+  marks: Record<string, RunMarks & { at: number }>;
   scores: Record<string, Score>;
   accounts: Record<string, Account>;
   bans: Record<string, number>;
-  /** "room|period|xid" → id of that account's fastest score on that board */
-  best: Record<string, string>;
   apps: Record<string, Application>;
   /** lowercase wallet → xid of the application using it */
   appWallets: Record<string, string>;
   snapshots: Partial<Record<ClaimList, Snapshot>>;
 };
-const EMPTY: Db = { runs: {}, once: {}, scores: {}, accounts: {}, bans: {}, best: {}, apps: {}, appWallets: {}, snapshots: {} };
+const EMPTY: Db = { marks: {}, scores: {}, accounts: {}, bans: {}, apps: {}, appWallets: {}, snapshots: {} };
 const DIR = join(process.cwd(), ".data");
 const FILE = join(DIR, "haunt.json");
-const windows = new Map<string, { n: number; reset: number }>();
 let queue: Promise<unknown> = Promise.resolve();
 
 async function db(): Promise<Db> {
@@ -321,8 +558,12 @@ async function db(): Promise<Db> {
   }
 }
 
+// The file store can't work on serverless hosts (read only disk, many instances), so fail loudly there.
+const serverless = Boolean(process.env.VERCEL || process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
 // Read, change and write back as one step.
 function mutate<T>(fn: (d: Db) => T) {
+  if (serverless) throw new Error("No database configured: set GOOGLE_SHEETS_WEBAPP_URL (see scripts/apps-script/README.md).");
   const run = queue.then(async () => {
     const d = await db();
     const out = fn(d);
@@ -336,31 +577,18 @@ function mutate<T>(fn: (d: Db) => T) {
   return run;
 }
 
-const bk = (room: string, period: string, xid: string) => `${room}|${period}|${xid}`;
-
-function board(d: Db, room: RoomId, period: Period) {
-  const prefix = `${room}|${period}|`;
-  return Object.entries(d.best)
-    .filter(([k]) => k.startsWith(prefix))
-    .map(([, id]) => d.scores[id])
-    .filter((s) => s && !s.hidden && !d.bans[s.xid])
-    .sort((a, b) => a.ms - b.ms || a.at - b.at);
-}
+const fileBans = (d: Db) => new Set(Object.keys(d.bans));
 
 const file: Store = {
-  async getRun(id) {
-    return (await db()).runs[id] ?? null;
+  async runMarks(id) {
+    const m = (await db()).marks[id];
+    return { hints: m?.hints ?? 0, wrong: m?.wrong ?? 0 };
   },
-  async putRun(run) {
-    await mutate((d) => {
-      d.runs[run.id] = run;
-    });
-  },
-  async once(key) {
+  async markRun(id, field) {
     return mutate((d) => {
-      if (d.once[key]) return false;
-      d.once[key] = Date.now();
-      return true;
+      const m = (d.marks[id] ??= { hints: 0, wrong: 0, at: Date.now() });
+      m[field] += 1;
+      return { hints: m.hints, wrong: m.wrong };
     });
   },
   async getAccount(xid) {
@@ -384,27 +612,20 @@ const file: Store = {
   },
   async postScore(s) {
     return mutate((d) => {
-      const n = Object.values(d.scores).filter((o) => o.room === s.room).length + 1;
-      const score: Score = { ...s, rank: 0, dayRank: 0, n };
+      if (d.scores[s.id]) return null;
+      const score = ranked(Object.values(d.scores), fileBans(d), s);
       d.scores[s.id] = score;
-      for (const p of periodsOf(s)) {
-        const prev = d.scores[d.best[bk(s.room, p, s.xid)]];
-        if (!prev || prev.hidden || s.ms < prev.ms) d.best[bk(s.room, p, s.xid)] = s.id;
-      }
-      score.rank = board(d, s.room, "all").filter((o) => o.ms < s.ms).length + 1;
-      score.dayRank = board(d, s.room, s.day).filter((o) => o.ms < s.ms).length + 1;
-      if (roundOpen(s.at)) score.roundRank = board(d, s.room, ROUND.id).filter((o) => o.ms < s.ms).length + 1;
       return score;
     });
   },
   async hide(s) {
     await mutate((d) => {
       if (d.scores[s.id]) d.scores[s.id].hidden = true;
-      for (const p of periodsOf(s)) if (d.best[bk(s.room, p, s.xid)] === s.id) delete d.best[bk(s.room, p, s.xid)];
     });
   },
   async top(room, period, n) {
-    return board(await db(), room, period)
+    const d = await db();
+    return boardFrom(Object.values(d.scores), fileBans(d), room, period)
       .slice(0, n)
       .map((s, i) => ({ ...s, rank: i + 1 }));
   },
@@ -417,21 +638,15 @@ const file: Store = {
   },
   async stats(room) {
     const d = await db();
-    const b = board(d, room, "all");
-    return { escapes: Object.values(d.scores).filter((s) => s.room === room).length, souls: b.length, fastestMs: b[0]?.ms ?? null };
+    return statsFrom(Object.values(d.scores), fileBans(d), room);
   },
-  async limit(key, max, windowSec) {
-    const now = Date.now();
-    const w = windows.get(key);
-    if (!w || w.reset < now) {
-      windows.set(key, { n: 1, reset: now + windowSec * 1000 });
-      return true;
-    }
-    return ++w.n <= max;
-  },
+  limit: async (key, max, windowSec) => memoryLimit(key, max, windowSec),
 
   async getApp(xid) {
     return (await db()).apps[xid] ?? null;
+  },
+  async appByPermit(permit) {
+    return Object.values((await db()).apps).find((a) => a.permit === permit) ?? null;
   },
   async saveApp(app) {
     return mutate((d) => {
@@ -454,13 +669,21 @@ const file: Store = {
     const apps = Object.values((await db()).apps);
     return { pending: 0, approved: 0, rejected: 0, ...Object.fromEntries(STATUSES.map((st) => [st, apps.filter((a) => a.status === st).length])) };
   },
-  async decide(xid, status, cap) {
+  async decide(xids, status, cap) {
     return mutate((d) => {
-      const app = d.apps[xid];
-      if (!app || app.status === status) return Boolean(app);
-      if (status === "approved" && Object.values(d.apps).filter((a) => a.status === "approved").length >= cap) return false;
-      d.apps[xid] = { ...app, status, decidedAt: Date.now() };
-      return true;
+      let changed = 0;
+      let capped = 0;
+      for (const xid of xids) {
+        const app = d.apps[xid];
+        if (!app || app.status === status) continue;
+        if (status === "approved" && Object.values(d.apps).filter((a) => a.status === "approved").length >= cap) {
+          capped++;
+          continue;
+        }
+        d.apps[xid] = { ...app, status, decidedAt: Date.now() };
+        changed++;
+      }
+      return { changed, capped };
     });
   },
   async getSnapshotMeta(list) {
@@ -481,7 +704,8 @@ const file: Store = {
   },
 };
 
-const store: Store = URL_ && TOKEN ? upstash : file;
+const store: Store = URL_ && TOKEN ? upstash : SHEETS_URL ? sheets : file;
+export const storageName = URL_ && TOKEN ? "upstash" : SHEETS_URL ? "sheets" : "file";
 
 export type BoardData = { room: RoomId; latest: Score[]; fastest: Score[]; round: Score[]; stats: Stats };
 

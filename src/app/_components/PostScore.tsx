@@ -20,8 +20,11 @@ function savedName() {
   }
 }
 
+/** Where a finished run's ticket waits while the player signs in with X (a full page trip to x.com and back). */
+export const ticketKey = (runId: string) => `haunt:run:${runId}`;
+
 /** Sign in, nickname, payout wallet and bot check, then the scorecard once the time is posted. */
-export default function PostScore({ runId }: { runId: string }) {
+export default function PostScore({ runId, ticket }: { runId: string; ticket: string }) {
   const [me, setMe] = useState<Me | null>(null);
   const [name, setName] = useState(savedName);
   const [wallet, setWallet] = useState("");
@@ -45,7 +48,10 @@ export default function PostScore({ runId }: { runId: string }) {
 
   useEffect(() => {
     loadMe();
-  }, []);
+    try {
+      sessionStorage.setItem(ticketKey(runId), ticket);
+    } catch {}
+  }, [runId, ticket]);
 
   async function send(url: string, data: object) {
     setBusy(true);
@@ -65,10 +71,11 @@ export default function PostScore({ runId }: { runId: string }) {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const res = await send("/api/score", { id: runId, name, wallet, cf });
+    const res = await send("/api/score", { ticket, name, wallet, cf });
     if (!res) return;
     try {
       localStorage.setItem(NAME_KEY, res.name);
+      sessionStorage.removeItem(ticketKey(runId));
     } catch {}
     setScore(res);
   }
@@ -97,7 +104,7 @@ export default function PostScore({ runId }: { runId: string }) {
   const bot = TURNSTILE_SITE_KEY ? <Turnstile siteKey={TURNSTILE_SITE_KEY} onToken={setCf} /> : null;
 
   if (!me.account) {
-    return <SignIn mode={me.mode} next={`/claim/${runId}`} lead={`The top 5 each win ${fmtHaunt(50_000)}. Sign in with X so we know who you are.`} onSignedIn={loadMe} />;
+    return <SignIn mode={me.mode} next={`/claim/${runId}`} lead={`The top 5 each win ${fmtHaunt(50_000)}. Enter your X username so we know who you are.`} onSignedIn={loadMe} />;
   }
 
   return (

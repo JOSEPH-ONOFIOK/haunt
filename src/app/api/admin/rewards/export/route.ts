@@ -1,9 +1,10 @@
-import store from "@/lib/store";
+import store, { freshReads } from "@/lib/store";
 import { isAdmin } from "@/lib/auth";
 
 // GET → the frozen winners, for deploying and funding the rewards claim contract.
 export async function GET() {
   if (!(await isAdmin())) return new Response("Forbidden", { status: 403 });
+  freshReads();
   const meta = await store.getSnapshotMeta("rewards");
   if (!meta) return new Response("Freeze the winners first.", { status: 409 });
   const claims = await store.allClaims("rewards");

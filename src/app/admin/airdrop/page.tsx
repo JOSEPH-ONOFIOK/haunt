@@ -5,8 +5,8 @@ import { Suspense } from "react";
 import TopBar from "../../_components/TopBar";
 import { AdminLogin } from "../AdminControls";
 import { AppTable, FreezeControls } from "./AppTable";
-import store from "@/lib/store";
-import { adminConfigured, isAdmin, xReady } from "@/lib/auth";
+import store, { freshReads } from "@/lib/store";
+import { adminConfigured, authMode, isAdmin } from "@/lib/auth";
 import { ALLOCATION, CLAIM_CONTRACT, CLAIM_OPEN, MAX_APPROVED, type AppStatus } from "@/lib/airdrop";
 
 export const metadata: Metadata = { title: "Admin: allocation", robots: { index: false, follow: false } };
@@ -19,6 +19,7 @@ async function Review({ searchParams }: Props) {
   await connection();
   if (!adminConfigured) return <p className="form-error">Set ADMIN_KEY and SESSION_SECRET to use this page.</p>;
   if (!(await isAdmin())) return <AdminLogin />;
+  freshReads();
 
   const q = await searchParams;
   const status: AppStatus = q.status === "approved" || q.status === "rejected" ? q.status : "pending";
@@ -33,7 +34,7 @@ async function Review({ searchParams }: Props) {
         <Link href="/admin/airdrop" className="tab tab-on">Allocation</Link>
       </nav>
 
-      {!xReady && <p className="form-error">Sign in with X isn&apos;t configured, so applicants typed their handles and none are verified.</p>}
+      {authMode !== "x" && <p className="form-error">Players type their X username, which X doesn&apos;t verify. Spot check profiles before approving.</p>}
 
       <div className="stats">
         <div className="stat stat-hot">

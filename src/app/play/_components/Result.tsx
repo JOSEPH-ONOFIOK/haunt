@@ -28,10 +28,10 @@ export default function Result({ room, localMs, hints, runId, official, onRestar
 
       {official === null ? (
         <p className="muted">Checking your escape with the spirits...</p>
-      ) : official.error || !runId ? (
+      ) : official.error || !runId || !official.ticket ? (
         <p className="form-error">{official.error}</p>
       ) : (
-        <PostScore runId={runId} />
+        <PostScore runId={runId} ticket={official.ticket} />
       )}
 
       <div className="panel-actions">

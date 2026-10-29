@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import TopBar from "../_components/TopBar";
 import AirdropPanel from "./AirdropPanel";
-import { ALLOCATION, MAX_APPROVED } from "@/lib/airdrop";
+import { ALLOCATION } from "@/lib/airdrop";
+
+const AMOUNT = `${ALLOCATION.toLocaleString("en-US")} $HAUNT`;
 
 export const metadata: Metadata = {
-  title: "The 2,000",
-  description: `2,000 approved souls get ${ALLOCATION.toLocaleString("en-US")} $HAUNT each. Sign in with X and apply with your Robinhood Chain wallet.`,
+  title: `Claim ${AMOUNT}`,
+  description: `Complete 5 tasks to unlock your allocation. Enter your X username, add your Robinhood Chain wallet and claim ${AMOUNT}.`,
 };
-
-const fmt = (n: number) => n.toLocaleString("en-US");
 
 export default function AirdropPage() {
   return (
@@ -16,11 +16,8 @@ export default function AirdropPage() {
       <TopBar />
       <main className="wrap section airdrop">
         <p className="eyebrow">$HAUNT airdrop</p>
-        <h1 className="section-title">The <em>{fmt(MAX_APPROVED)}</em></h1>
-        <p className="section-lead">
-          {fmt(MAX_APPROVED)} approved users get {fmt(ALLOCATION)} $HAUNT each. Sign in with X, submit your Robinhood Chain wallet and
-          we&apos;ll review your application.
-        </p>
+        <h1 className="section-title">Claim <em>{ALLOCATION.toLocaleString("en-US")}</em> $HAUNT</h1>
+        <p className="section-lead">Complete 5 tasks to unlock your allocation, then get your permit card and post it in the comments.</p>
         <AirdropPanel />
       </main>
     </>

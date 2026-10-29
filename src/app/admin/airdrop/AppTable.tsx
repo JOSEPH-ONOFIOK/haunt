@@ -51,7 +51,7 @@ export function AppTable({ apps, status, frozen }: { apps: Application[]; status
           <thead>
             <tr>
               <th><input type="checkbox" aria-label="Select all on this page" checked={all} onChange={() => setPicked(all ? [] : apps.map((a) => a.xid))} /></th>
-              <th>Applicant</th><th>X account</th><th>Wallet</th><th>Applied</th>
+              <th>Applicant</th><th>X account</th><th>Wallet</th><th>Permit</th><th>Applied</th>
             </tr>
           </thead>
           <tbody>
@@ -66,6 +66,10 @@ export function AppTable({ apps, status, frozen }: { apps: Application[]; status
                     {days !== null && ` · ${days}d · ${a.followers ?? 0} followers`}
                   </td>
                   <td className="mono">{a.wallet}</td>
+                  <td className="muted">
+                    {a.permit ? <a href={`/p/${a.permit}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>{a.permit}</a> : "-"}
+                    <div>{a.tasks ? `${Object.keys(a.tasks).length}/5 tasks` : ""}</div>
+                  </td>
                   <td className="muted">{new Date(a.appliedAt).toISOString().slice(0, 16).replace("T", " ")}</td>
                 </tr>
               );

@@ -10,13 +10,13 @@ const SECRET = process.env.SESSION_SECRET || (process.env.NODE_ENV === "producti
 export const hasSecret = !!SECRET;
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET_KEY;
 
-// "x": Sign in with X, like the militia site. The only mode the live site ever uses.
-// "handle": players type a handle, unverified. Only on a developer's machine, or a test build with DEV_HANDLE_SIGNIN=1.
+// "handle": players type their X username. The default: no X app needed. Usernames aren't verified, so a
+//   handle can only be reopened from the browser that first used it, one claim per handle and per wallet.
+// "x": Sign in with X (OAuth). Only when AUTH_MODE=x and the X app keys are set.
 export type AuthMode = "x" | "handle";
-/** X keys and the shared database are all set, so the Sign in with X button can actually sign people in. */
-export const xReady = Boolean(X_CLIENT_ID && SECRET && process.env.UPSTASH_REDIS_REST_URL);
-const devHandles = process.env.NODE_ENV !== "production" || process.env.DEV_HANDLE_SIGNIN === "1";
-export const authMode: AuthMode = xReady || !devHandles ? "x" : "handle";
+/** X keys and the shared database are all set, so Sign in with X could sign people in. */
+export const xReady = Boolean(X_CLIENT_ID && SECRET && (process.env.UPSTASH_REDIS_REST_URL || process.env.GOOGLE_SHEETS_WEBAPP_URL));
+export const authMode: AuthMode = process.env.AUTH_MODE === "x" && xReady ? "x" : "handle";
 
 // Prize eligibility: brand new or empty X accounts are the cheapest way to farm entries.
 export const MIN_ACCOUNT_DAYS = Number(process.env.MIN_ACCOUNT_DAYS ?? 30);
@@ -107,7 +107,7 @@ export function authorizeUrl(o: OAuthState, redirectUri: string) {
   return `https://x.com/i/oauth2/authorize?${q}`;
 }
 
-export type XUser = { id: string; username: string; created_at?: string; public_metrics?: { followers_count: number } };
+export type XUser = { id: string; username: string; created_at?: string; profile_image_url?: string; public_metrics?: { followers_count: number } };
 
 export async function exchangeAndFetchUser(code: string, verifier: string, redirectUri: string): Promise<XUser> {
   const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
@@ -121,7 +121,7 @@ export async function exchangeAndFetchUser(code: string, verifier: string, redir
   if (!tokenRes.ok) throw new Error(`token ${tokenRes.status}`);
   const { access_token } = await tokenRes.json();
 
-  const meRes = await fetch("https://api.x.com/2/users/me?user.fields=created_at,public_metrics", {
+  const meRes = await fetch("https://api.x.com/2/users/me?user.fields=created_at,public_metrics,profile_image_url", {
     headers: { Authorization: `Bearer ${access_token}` },
     cache: "no-store",
   });

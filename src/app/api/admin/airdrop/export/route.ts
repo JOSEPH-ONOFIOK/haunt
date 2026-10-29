@@ -1,10 +1,11 @@
-import store from "@/lib/store";
+import store, { freshReads } from "@/lib/store";
 import { isAdmin } from "@/lib/auth";
 import { MAX_APPROVED, type AppStatus } from "@/lib/airdrop";
 
 // GET ?status=approved → CSV of applications.  GET ?format=merkle → the frozen list for deploying the claim contract.
 export async function GET(req: Request) {
   if (!(await isAdmin())) return new Response("Forbidden", { status: 403 });
+  freshReads();
   const q = new URL(req.url).searchParams;
 
   if (q.get("format") === "merkle") {

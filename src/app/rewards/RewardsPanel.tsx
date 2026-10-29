@@ -37,7 +37,7 @@ export default function RewardsPanel() {
   if (!me.account) {
     return (
       <div className="ad-card">
-        <SignIn mode={me.mode} next="/rewards" lead="Sign in with the X account you posted your time with." onSignedIn={load} />
+        <SignIn mode={me.mode} next="/rewards" lead="Enter the X username you posted your time with." onSignedIn={load} />
       </div>
     );
   }

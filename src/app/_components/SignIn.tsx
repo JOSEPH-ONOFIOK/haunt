@@ -15,8 +15,8 @@ const AUTH_ERRORS: Record<string, string> = {
 };
 
 /**
- * Sign in with X, the same flow as the militia site: bot check, then off to X and back to `next`.
- * The typed handle form only exists on a developer's machine (mode "handle"); onSignedIn runs after it.
+ * The player types their X username (mode "handle", the default), or, if the site is switched to it,
+ * Sign in with X: bot check, then off to X and back to `next`. onSignedIn runs after a typed username is accepted.
  */
 export default function SignIn({ mode, next, lead, onSignedIn }: { mode: "x" | "handle"; next: string; lead: string; onSignedIn: () => void }) {
   const [handle, setHandle] = useState("");
@@ -73,11 +73,12 @@ export default function SignIn({ mode, next, lead, onSignedIn }: { mode: "x" | "
   return (
     <form className="name-form" onSubmit={submit}>
       <p className="form-note">{lead}</p>
-      <label htmlFor="xh">X handle (developer test mode only, never on the live site)</label>
+      <label htmlFor="xh">Your X username</label>
       <div className="name-row">
-        <input id="xh" className="input" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@yourhandle" required autoCapitalize="off" spellCheck={false} />
-        <button className="btn btn-green" disabled={busy}>{busy ? "..." : "Continue"}</button>
+        <input id="xh" className="input" value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@yourusername" required autoCapitalize="off" autoComplete="username" spellCheck={false} maxLength={16} />
+        <button className="btn btn-green" disabled={busy || botPending}>{busy ? "..." : "Continue"}</button>
       </div>
+      <p className="fine">Use your real X username. Your allocation and card are tied to it.</p>
       {bot}
       {error && <p className="form-error">{error}</p>}
     </form>

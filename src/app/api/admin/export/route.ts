@@ -1,4 +1,4 @@
-import store from "@/lib/store";
+import store, { freshReads } from "@/lib/store";
 import { isAdmin } from "@/lib/auth";
 import { isRoomId } from "@/lib/rooms";
 import { formatScore } from "@/lib/room";
@@ -7,6 +7,7 @@ import { ROUND, rewardFor } from "@/lib/rewards";
 // GET /api/admin/export?room=study&period=2026-10-31 → CSV of that board with wallets, for paying prizes
 export async function GET(req: Request) {
   if (!(await isAdmin())) return new Response("Forbidden", { status: 403 });
+  freshReads();
   const q = new URL(req.url).searchParams;
   const room = q.get("room") ?? "study";
   const period = q.get("period") ?? "all";

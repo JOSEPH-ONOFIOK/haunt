@@ -30,6 +30,8 @@ export async function GET(req: Request) {
       eligible: eligible(user),
       xCreatedAt: user.created_at,
       followers: user.public_metrics?.followers_count,
+      // X serves a 48px "_normal" picture by default; the card wants the full size one.
+      avatar: user.profile_image_url?.replace("_normal.", "_400x400."),
       wallet: prev?.wallet,
       firstSeen: prev?.firstSeen ?? Date.now(),
     });

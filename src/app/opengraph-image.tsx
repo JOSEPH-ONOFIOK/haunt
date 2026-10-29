@@ -22,7 +22,7 @@ export default async function Image() {
         <div style={{ display: "flex", flexDirection: "column", padding: "60px 0 0 60px", width: 700 }}>
           <img src={banner} width={640} height={213} alt="" />
           <div style={{ fontSize: 46, color: "#ff7a1a", marginTop: 26 }}>Escape the haunted mansion.</div>
-          <div style={{ fontSize: 34, color: "#b9b0a3", marginTop: 12 }}>2,000 airdrop spots. Top 5 escapers win 50,000 $HAUNT each.</div>
+          <div style={{ fontSize: 34, color: "#b9b0a3", marginTop: 12 }}>Claim 100,000 $HAUNT. Top 5 escapers win 50,000 $HAUNT each.</div>
         </div>
       </div>
     ),

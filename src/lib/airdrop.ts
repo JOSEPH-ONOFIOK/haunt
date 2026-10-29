@@ -23,6 +23,12 @@ export type Application = {
   eligible: boolean;
   xCreatedAt?: string;
   followers?: number;
+  /** When each of the five tasks was done, as the player's browser reported it. */
+  tasks?: Partial<Record<TaskId, number>>;
+  /** Printed on the player's card and its share link. */
+  permit?: string;
+  /** X profile picture for the card. */
+  avatar?: string;
 };
 
 /** One entry in a frozen list that a claim contract was deployed with. xid is set on game reward entries. */
@@ -87,3 +93,25 @@ export const distributorAbi = [
 export const erc20Abi = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;
+
+// ---------- the five tasks that unlock an allocation ----------
+// The airdrop post the like, repost and comment tasks point at. Any x.com or twitter.com status link.
+export const AIRDROP_POST_ID = (process.env.NEXT_PUBLIC_AIRDROP_POST || "").match(/status\/(\d+)/)?.[1] ?? "";
+const X_USER = "PlayhauntRh";
+
+export type TaskId = "follow" | "like" | "repost" | "comment" | "notify";
+export const TASKS: { id: TaskId; title: string; detail: string; href: string }[] = [
+  { id: "follow", title: `Follow @${X_USER}`, detail: "Follow the official account", href: `https://x.com/intent/follow?screen_name=${X_USER}` },
+  { id: "like", title: "Like the post", detail: "Like the airdrop post", href: AIRDROP_POST_ID ? `https://x.com/intent/like?tweet_id=${AIRDROP_POST_ID}` : `https://x.com/${X_USER}` },
+  { id: "repost", title: "Repost the post", detail: "Repost the airdrop post", href: AIRDROP_POST_ID ? `https://x.com/intent/retweet?tweet_id=${AIRDROP_POST_ID}` : `https://x.com/${X_USER}` },
+  { id: "comment", title: "Comment on the post", detail: "Write anything, in your own words", href: AIRDROP_POST_ID ? `https://x.com/intent/post?in_reply_to=${AIRDROP_POST_ID}` : `https://x.com/${X_USER}` },
+  { id: "notify", title: "Turn on notifications", detail: "Open the profile and tap the bell", href: `https://x.com/${X_USER}` },
+];
+export const TASK_IDS = TASKS.map((t) => t.id);
+
+/** Where the finished card is posted: as a reply under the airdrop post, so it lands in the comments. */
+export const commentIntent = (text: string, url: string) =>
+  `https://x.com/intent/post?${new URLSearchParams({ text, url, ...(AIRDROP_POST_ID ? { in_reply_to: AIRDROP_POST_ID } : {}) })}`;
+
+/** A permit id like HAUNT-07M-DJTI, printed on the player's card. */
+export const PERMIT_RE = /^HAUNT-[0-9A-Z]{3}-[0-9A-Z]{4}$/;

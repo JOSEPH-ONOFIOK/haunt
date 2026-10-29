@@ -6,8 +6,8 @@ import type { RoomId } from "@/lib/rooms";
 import * as sound from "@/lib/sound";
 
 export type Phase = "intro" | "starting" | "playing" | "won" | "lost";
-/** The server's verdict on a finished run: its official time, or why it can't be ranked. */
-export type Official = { ms?: number; error?: string };
+/** The server's verdict on a finished run: its official time and signed ticket, or why it can't be ranked. */
+export type Official = { ms?: number; ticket?: string; error?: string };
 
 export async function post(url: string, data: unknown) {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
@@ -29,8 +29,9 @@ export function useRun(room: RoomId, onReset: (seed: number) => void) {
   const [runId, setRunId] = useState<string | null>(null);
   const [official, setOfficial] = useState<Official | null>(null);
   const [toast, setToast] = useState("Tap anything that looks suspicious.");
-  // Checkpoint posts run in order so the server sees them in sequence.
+  // Checkpoint posts run in order so the server sees them in sequence, each one re-signing the run's ticket.
   const steps = useRef<Promise<unknown>>(Promise.resolve());
+  const ticket = useRef<string | null>(null);
   const reset = useRef(onReset);
   useEffect(() => {
     reset.current = onReset;
@@ -70,6 +71,7 @@ export function useRun(room: RoomId, onReset: (seed: number) => void) {
     if (res && !res.error) ({ id, seed } = res);
     const t = Date.now();
     steps.current = Promise.resolve();
+    ticket.current = res && !res.error ? res.ticket : null;
     setRunId(id);
     setOfficial(null);
     setStartedAt(t);
@@ -85,7 +87,7 @@ export function useRun(room: RoomId, onReset: (seed: number) => void) {
   }
 
   function hint(text: string) {
-    if (runId) post("/api/run/hint", { id: runId }).catch(() => {});
+    if (ticket.current) post("/api/run/hint", { ticket: ticket.current }).catch(() => {});
     setPenalty((p) => p + HINT_PENALTY_MS);
     setHints((n) => n + 1);
     setToast(`Hint (-${HINT_PENALTY_MS / 1000}s): ${text}`);
@@ -95,8 +97,13 @@ export function useRun(room: RoomId, onReset: (seed: number) => void) {
   /** Tells the server a checkpoint was reached. Queued so they arrive in order. */
   function step(name: string, value?: unknown) {
     if (!runId) return;
-    const id = runId;
-    steps.current = steps.current.then(() => post("/api/run/step", { id, step: name, value }).catch(() => {}));
+    steps.current = steps.current.then(() =>
+      post("/api/run/step", { ticket: ticket.current, step: name, value })
+        .then((r) => {
+          if (r.ticket) ticket.current = r.ticket;
+        })
+        .catch(() => {}),
+    );
   }
 
   function win(code: number[]) {
@@ -108,9 +115,8 @@ export function useRun(room: RoomId, onReset: (seed: number) => void) {
       setOfficial({ error: "This run was played offline, so it can't go on the leaderboard." });
       return;
     }
-    const id = runId;
     steps.current
-      .then(() => post("/api/run/finish", { id, code }))
+      .then(() => post("/api/run/finish", { ticket: ticket.current, code }))
       .then(setOfficial)
       .catch(() => setOfficial({ error: "Couldn't reach the leaderboard. Your time wasn't saved." }));
   }

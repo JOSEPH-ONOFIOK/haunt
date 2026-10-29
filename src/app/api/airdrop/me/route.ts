@@ -15,7 +15,7 @@ export async function GET() {
     {
       mode: authMode,
       account: account && { handle: account.handle, verified: account.verified, eligible: account.eligible },
-      app: app && { handle: app.handle, wallet: app.wallet, status: app.status, appliedAt: app.appliedAt },
+      app: app && { handle: app.handle, wallet: app.wallet, status: app.status, appliedAt: app.appliedAt, permit: app.permit ?? null },
       frozen: Boolean(meta),
       // Applications close when Round 1 ends, or earlier if the list is frozen.
       applicationsOpen: roundOpen() && !meta,

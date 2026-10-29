@@ -4,8 +4,8 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import TopBar from "../_components/TopBar";
 import { AdminLogin, RowActions } from "./AdminControls";
-import store, { today } from "@/lib/store";
-import { adminConfigured, isAdmin, xReady } from "@/lib/auth";
+import store, { freshReads, today } from "@/lib/store";
+import { adminConfigured, authMode, isAdmin } from "@/lib/auth";
 import { HINT_PENALTY_MS, formatScore } from "@/lib/room";
 import { REWARDS, ROUND, fmtHaunt, rewardFor, roundOpen } from "@/lib/rewards";
 import { REWARDS_CLAIM_OPEN, REWARDS_CONTRACT } from "@/lib/airdrop";
@@ -50,6 +50,7 @@ async function Admin({ searchParams }: Props) {
   await connection();
   if (!adminConfigured) return <p className="form-error">Set ADMIN_KEY and SESSION_SECRET to use this page.</p>;
   if (!(await isAdmin())) return <AdminLogin />;
+  freshReads();
 
   const q = await searchParams;
   const room: RoomId = isRoomId(q.room) ? q.room : "study";
@@ -65,8 +66,8 @@ async function Admin({ searchParams }: Props) {
         <Link href="/admin" className="tab tab-on">Leaderboards</Link>
         <Link href="/admin/airdrop" className="tab">Allocation</Link>
       </nav>
-      {!xReady && (
-        <p className="form-error">Sign in with X isn&apos;t configured, so handles are typed and unverified. Don&apos;t pay $HAUNT rewards from this board.</p>
+      {authMode !== "x" && (
+        <p className="form-error">Players type their X username, which X doesn&apos;t verify. Open each winner&apos;s X profile and check it before paying.</p>
       )}
       <div className="tabs">
         {ROOM_IDS.map((r) => (

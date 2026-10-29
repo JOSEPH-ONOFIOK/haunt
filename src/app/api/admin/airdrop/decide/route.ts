@@ -10,12 +10,6 @@ export async function POST(req: Request) {
   if (!Array.isArray(xids) || !xids.length || xids.length > 500 || !["pending", "approved", "rejected"].includes(status!)) return fail("Bad request.");
   if (await store.getSnapshotMeta("airdrop")) return fail("The list is frozen. Unfreeze it before changing decisions.", 409);
 
-  let changed = 0;
-  let capped = 0;
-  for (const xid of xids) {
-    if (typeof xid !== "string") continue;
-    if (await store.decide(xid, status!, MAX_APPROVED)) changed++;
-    else if (status === "approved") capped++;
-  }
+  const { changed, capped } = await store.decide(xids.filter((x): x is string => typeof x === "string"), status!, MAX_APPROVED);
   return Response.json({ changed, capped, counts: await store.countApps() });
 }

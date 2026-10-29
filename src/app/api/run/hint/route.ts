@@ -1,12 +1,11 @@
 import store from "@/lib/store";
-import { body, fail, isRunId } from "@/lib/api";
+import { body, fail } from "@/lib/api";
+import { readRun } from "@/lib/runs";
 
-// Counts a hint against the run so its time penalty can't be skipped.
+// Counts a hint against the run in the database, so replaying an older ticket can't drop the penalty.
 export async function POST(req: Request) {
-  const { id } = await body<{ id: string }>(req);
-  if (!isRunId(id)) return fail("Unknown run.");
-  const run = await store.getRun(id);
+  const run = readRun((await body<{ ticket: string }>(req)).ticket);
   if (!run || run.ms !== undefined) return fail("Unknown run.");
-  await store.putRun({ ...run, hints: run.hints + 1 });
+  await store.markRun(run.id, "hints");
   return Response.json({ ok: true });
 }
