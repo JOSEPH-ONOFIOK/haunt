@@ -1,69 +1,137 @@
 import Image from "next/image";
+import Link from "next/link";
+import { Suspense } from "react";
+import { CornerWeb, XIcon } from "./_components/art";
+import Countdown from "./_components/Countdown";
+import Mansion from "./_components/Mansion";
+import TopBar from "./_components/TopBar";
+import { BoardSkeleton, HomeBoard } from "./_components/Leaderboard";
+import CopyAddress from "./_components/CopyAddress";
+import { BUY_URL, CHAIN_NAME, EXPLORER_URL, LAUNCH_AT, TOKEN_ADDRESS, X_HANDLE, X_URL } from "@/lib/site";
 
 export default function Home() {
+  const launched = Boolean(TOKEN_ADDRESS && BUY_URL);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <>
+      <TopBar>
+        <Link href="/play" className="btn btn-orange btn-sm">Play</Link>
+      </TopBar>
+
+      <main>
+        <section className="hero">
+          <div className="hero-scene">
+            <Mansion />
+            <div className="fog" style={{ bottom: 0, height: "40%" }} />
+          </div>
+          <CornerWeb className="corner-web" />
+          <div className="wrap hero-copy">
+            <h1 className="hero-title">HAUNT</h1>
+            <p className="hero-tag">Something moved into the mansion.</p>
+            <p className="hero-intro">
+              HAUNT rises on October 31. Before the doors open, step inside, find the clues and escape the room
+              before the candles die. The fastest souls take the leaderboard.
+            </p>
+            <Countdown target={LAUNCH_AT} />
+            <div className="hero-cta">
+              <Link href="/play" className="btn btn-green btn-big">Enter the Mansion</Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="section" id="leaderboard">
+          <div className="wrap">
+            <p className="eyebrow">Leaderboard</p>
+            <h2 className="section-title">Every escape, on the <em>record</em></h2>
+            <Suspense fallback={<BoardSkeleton rows={5} />}>
+              <HomeBoard />
+            </Suspense>
+          </div>
+        </section>
+
+        <section className="section">
+          <div className="wrap">
+            <h2 className="section-title">Escape the <em>mansion</em></h2>
+            <p className="section-lead">Two locked rooms, five minutes each, and something in a hood watching you. The fastest souls win prizes.</p>
+            <div className="cards">
+              <div className="card">
+                <span className="num">1</span>
+                <h3>Search</h3>
+                <p>Tap anything that looks wrong. Candles, clocks and portraits all hide something.</p>
+              </div>
+              <div className="card">
+                <span className="num">2</span>
+                <h3>Solve</h3>
+                <p>Every room is shuffled, so the answers change each run. No copying your friends.</p>
+              </div>
+              <div className="card">
+                <span className="num">3</span>
+                <h3>Escape</h3>
+                <p>Crack the lock before time runs out, then post your time and haunt the leaderboard.</p>
+              </div>
+            </div>
+            <div className="hero-cta" style={{ justifyContent: "flex-start" }}>
+              <Link href="/play" className="btn btn-orange">Enter the Study</Link>
+              <Link href="/play/cellar" className="btn btn-ghost">The Cellar · opens at launch</Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="section" id="token">
+          <div className="wrap">
+            <h2 className="section-title">The <em>token</em></h2>
+            <p className="section-lead">
+              The contract is sealed in the crypt until launch{CHAIN_NAME ? ` on ${CHAIN_NAME}` : ""}.
+            </p>
+            <div className="token-box">
+              <div className="token-row">
+                <div className="token-main">
+                  <div className="token-label">Contract address</div>
+                  <div className={`token-value${launched ? "" : " token-sealed"}`}>
+                    {launched ? TOKEN_ADDRESS : "Revealed at launch"}
+                  </div>
+                </div>
+                {launched ? (
+                  <div className="token-actions">
+                    <CopyAddress address={TOKEN_ADDRESS} />
+                    {EXPLORER_URL && (
+                      <a className="btn btn-sm btn-ghost" href={`${EXPLORER_URL}${TOKEN_ADDRESS}`} target="_blank" rel="noopener noreferrer">View on explorer</a>
+                    )}
+                    <a className="btn btn-green" href={BUY_URL} target="_blank" rel="noopener noreferrer">Buy HAUNT</a>
+                  </div>
+                ) : (
+                  <button className="btn" disabled>Buy at launch</button>
+                )}
+              </div>
+              <p className="token-warn">
+                <b>Beware of impostors.</b> This page and {X_HANDLE} are the only places the real address is posted. We will never DM you,
+                ask for your seed phrase or ask you to send tokens first.
+              </p>
+              <div className="token-row">
+                <div>
+                  <div className="token-label">Follow for the reveal</div>
+                  <div className="token-value">{X_HANDLE}</div>
+                </div>
+                <a className="btn btn-ghost" href={X_URL} target="_blank" rel="noopener noreferrer">
+                  <span style={{ width: 16, display: "inline-flex" }}><XIcon /></span> Follow
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
-    </div>
+
+      <footer className="footer">
+        <div className="footer-banner">
+          <Image src="/banner.png" alt="HAUNT" width={1500} height={500} sizes="(max-width: 760px) 100vw, 720px" />
+        </div>
+        <div className="wrap">
+          <a className="footer-x" href={X_URL} target="_blank" rel="noopener noreferrer">
+            <span className="btn-icon"><XIcon /></span> {X_HANDLE}
+          </a>
+          <span>Enter if you dare. Not financial advice.</span>
+        </div>
+      </footer>
+    </>
   );
 }
