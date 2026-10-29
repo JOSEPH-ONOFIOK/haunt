@@ -16,8 +16,8 @@ export default function RewardsPage() {
         <p className="eyebrow">Game rewards</p>
         <h1 className="section-title">The fastest souls win <em>{REWARDS[0].toLocaleString("en-US")}</em> $HAUNT</h1>
         <p className="section-lead">
-          Top {REWARDS.length} of {ROUND.name}: {fmtHaunt(ROUND_TOTAL)} in total. The round ends 2 hours before Halloween. Winners are checked, then
-          claim their $HAUNT here when the coin launches. This is separate from the X airdrop.
+          Top {REWARDS.length} of {ROUND.name}: {fmtHaunt(ROUND_TOTAL)} in total. The round ends 2 hours before Halloween, and winners
+          claim their $HAUNT here when the coin launches.
         </p>
         <RewardsPanel />
       </main>

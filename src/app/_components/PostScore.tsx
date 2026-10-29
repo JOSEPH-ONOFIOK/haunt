@@ -110,7 +110,7 @@ export default function PostScore({ runId, ticket }: { runId: string; ticket: st
   return (
     <form className="name-form" onSubmit={submit}>
       <p className="form-note">
-        Signed in as <b>@{me.account.handle}</b>. Winners are checked before $HAUNT is sent.
+        Signed in as <b>@{me.account.handle}</b>.
       </p>
       <label htmlFor="nick">Nickname on the board</label>
       <input id="nick" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your nickname" maxLength={16} minLength={2} required autoComplete="nickname" autoCapitalize="off" spellCheck={false} />

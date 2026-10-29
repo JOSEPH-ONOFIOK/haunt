@@ -45,7 +45,7 @@ export default function LeaderboardPage(props: Props) {
         <p className="section-lead">
           The top {REWARDS.length} of {ROUND.name} each win {fmtHaunt(REWARDS[0])} ({fmtHaunt(ROUND_TOTAL)} in total). The round ends 2 hours
           before Halloween ({new Date(ROUND.endsAt).toUTCString().replace(" GMT", " UTC")}). Best escape per X account; hints add {HINT_PENALTY_MS / 1000} seconds
-          each. Winners are checked before payouts. Separate from the X airdrop.
+          each.
         </p>
         <Suspense fallback={<BoardSkeleton rows={10} />}>
           <Board {...props} />
